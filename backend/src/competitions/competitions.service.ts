@@ -1,10 +1,18 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { CompetitionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+
+const VALID_TRANSITIONS: Record<string, string> = {
+  DRAFT: 'REGISTRATION',
+  REGISTRATION: 'WEIGH_IN',
+  WEIGH_IN: 'ACTIVE',
+  ACTIVE: 'COMPLETED',
+};
 
 @Injectable()
 export class CompetitionsService {
@@ -46,7 +54,15 @@ export class CompetitionsService {
     organizerId: string,
     data: { name?: string; date?: Date; location?: string; status?: CompetitionStatus },
   ) {
-    await this.findOne(id, organizerId);
+    const competition = await this.findOne(id, organizerId);
+
+    if (data.status) {
+      const allowed = VALID_TRANSITIONS[competition.status];
+      if (allowed !== data.status) {
+        throw new BadRequestException('Invalid status transition');
+      }
+    }
+
     return this.prisma.competition.update({
       where: { id },
       data,

@@ -1,4 +1,8 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Gender, RegistrationStatus } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
@@ -8,7 +12,13 @@ describe('CompetitorsService', () => {
   let service: CompetitorsService;
   let prisma: {
     competition: { findUnique: jest.Mock };
-    competitor: { create: jest.Mock; findMany: jest.Mock; findUnique: jest.Mock; update: jest.Mock };
+    competitor: {
+      create: jest.Mock;
+      findFirst: jest.Mock;
+      findMany: jest.Mock;
+      findUnique: jest.Mock;
+      update: jest.Mock;
+    };
   };
 
   beforeEach(async () => {
@@ -16,6 +26,7 @@ describe('CompetitorsService', () => {
       competition: { findUnique: jest.fn() },
       competitor: {
         create: jest.fn(),
+        findFirst: jest.fn(),
         findMany: jest.fn(),
         findUnique: jest.fn(),
         update: jest.fn(),
@@ -71,6 +82,18 @@ describe('CompetitorsService', () => {
         NotFoundException,
       );
     });
+
+    it('throws BadRequestException when email already registered', async () => {
+      prisma.competition.findUnique.mockResolvedValue({
+        id: 'comp-1',
+        status: 'REGISTRATION',
+      });
+      prisma.competitor.findFirst.mockResolvedValue({ id: 'existing-1' });
+
+      await expect(
+        service.register('comp-1', { ...registrationData, email: 'dupe@test.com' }),
+      ).rejects.toThrow(BadRequestException);
+    });
   });
 
   describe('findAll', () => {
@@ -89,19 +112,22 @@ describe('CompetitorsService', () => {
   });
 
   describe('updateStatus', () => {
-    it('updates status', async () => {
-      prisma.competitor.findUnique.mockResolvedValue({ id: 'c-1' });
+    it('updates status when organizer owns competition', async () => {
+      prisma.competitor.findUnique.mockResolvedValue({
+        id: 'c-1',
+        competition: { organizerId: 'org-1' },
+      });
       prisma.competitor.update.mockResolvedValue({
         id: 'c-1',
-        registrationStatus: RegistrationStatus.CONFIRMED,
+        registrationStatus: RegistrationStatus.WEIGHED_IN,
       });
 
-      const result = await service.updateStatus('c-1', RegistrationStatus.CONFIRMED);
+      const result = await service.updateStatus('c-1', 'org-1', RegistrationStatus.WEIGHED_IN);
 
-      expect(result.registrationStatus).toBe(RegistrationStatus.CONFIRMED);
+      expect(result.registrationStatus).toBe(RegistrationStatus.WEIGHED_IN);
       expect(prisma.competitor.update).toHaveBeenCalledWith({
         where: { id: 'c-1' },
-        data: { registrationStatus: RegistrationStatus.CONFIRMED },
+        data: { registrationStatus: RegistrationStatus.WEIGHED_IN },
       });
     });
 
@@ -109,8 +135,19 @@ describe('CompetitorsService', () => {
       prisma.competitor.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.updateStatus('c-1', RegistrationStatus.CONFIRMED),
+        service.updateStatus('c-1', 'org-1', RegistrationStatus.WEIGHED_IN),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws ForbiddenException when organizer does not own competition', async () => {
+      prisma.competitor.findUnique.mockResolvedValue({
+        id: 'c-1',
+        competition: { organizerId: 'other-org' },
+      });
+
+      await expect(
+        service.updateStatus('c-1', 'org-1', RegistrationStatus.WEIGHED_IN),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 });

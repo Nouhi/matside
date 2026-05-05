@@ -1,4 +1,8 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { CompetitionsService } from './competitions.service';
@@ -98,6 +102,7 @@ describe('CompetitionsService', () => {
       prisma.competition.findUnique.mockResolvedValue({
         id: 'comp-1',
         organizerId: 'org-1',
+        status: 'DRAFT',
       });
       prisma.competition.update.mockResolvedValue({ id: 'comp-1', name: 'Updated' });
 
@@ -107,6 +112,61 @@ describe('CompetitionsService', () => {
         where: { id: 'comp-1' },
         data: { name: 'Updated' },
       });
+    });
+
+    it('allows valid status transition', async () => {
+      prisma.competition.findUnique.mockResolvedValue({
+        id: 'comp-1',
+        organizerId: 'org-1',
+        status: 'DRAFT',
+      });
+      prisma.competition.update.mockResolvedValue({
+        id: 'comp-1',
+        status: 'REGISTRATION',
+      });
+
+      await service.update('comp-1', 'org-1', { status: 'REGISTRATION' as any });
+
+      expect(prisma.competition.update).toHaveBeenCalledWith({
+        where: { id: 'comp-1' },
+        data: { status: 'REGISTRATION' },
+      });
+    });
+
+    it('throws BadRequestException on invalid status transition', async () => {
+      prisma.competition.findUnique.mockResolvedValue({
+        id: 'comp-1',
+        organizerId: 'org-1',
+        status: 'DRAFT',
+      });
+
+      await expect(
+        service.update('comp-1', 'org-1', { status: 'ACTIVE' as any }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when skipping status steps', async () => {
+      prisma.competition.findUnique.mockResolvedValue({
+        id: 'comp-1',
+        organizerId: 'org-1',
+        status: 'REGISTRATION',
+      });
+
+      await expect(
+        service.update('comp-1', 'org-1', { status: 'ACTIVE' as any }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException on backward transition', async () => {
+      prisma.competition.findUnique.mockResolvedValue({
+        id: 'comp-1',
+        organizerId: 'org-1',
+        status: 'COMPLETED',
+      });
+
+      await expect(
+        service.update('comp-1', 'org-1', { status: 'DRAFT' as any }),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 

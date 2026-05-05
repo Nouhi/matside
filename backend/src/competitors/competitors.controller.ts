@@ -5,8 +5,10 @@ import {
   Param,
   Patch,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import * as express from 'express';
 import {
   IsDateString,
   IsEmail,
@@ -14,6 +16,9 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Max,
+  MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
 import { Gender, RegistrationStatus } from '@prisma/client';
@@ -23,14 +28,17 @@ import { CompetitorsService } from './competitors.service';
 export class RegisterCompetitorDto {
   @IsString()
   @MinLength(1)
+  @MaxLength(100)
   firstName: string;
 
   @IsString()
   @MinLength(1)
+  @MaxLength(100)
   lastName: string;
 
   @IsOptional()
   @IsEmail()
+  @MaxLength(100)
   email?: string;
 
   @IsDateString()
@@ -41,10 +49,13 @@ export class RegisterCompetitorDto {
 
   @IsOptional()
   @IsNumber()
+  @Min(1)
+  @Max(500)
   weight?: number;
 
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   club?: string;
 }
 
@@ -80,7 +91,12 @@ export class CompetitorsController {
 
   @Patch(':id/status')
   @UseGuards(JwtAuthGuard)
-  updateStatus(@Param('id') id: string, @Body() dto: UpdateStatusDto) {
-    return this.competitorsService.updateStatus(id, dto.status);
+  updateStatus(
+    @Req() req: express.Request,
+    @Param('id') id: string,
+    @Body() dto: UpdateStatusDto,
+  ) {
+    const user = req.user as { sub: string; email: string };
+    return this.competitorsService.updateStatus(id, user.sub, dto.status);
   }
 }

@@ -10,7 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import * as express from 'express';
-import { IsDateString, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsDateString, IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { CompetitionStatus } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CompetitionsService } from './competitions.service';
@@ -18,6 +18,7 @@ import { CompetitionsService } from './competitions.service';
 export class CreateCompetitionDto {
   @IsString()
   @MinLength(1)
+  @MaxLength(200)
   name: string;
 
   @IsDateString()
@@ -25,6 +26,7 @@ export class CreateCompetitionDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   location?: string;
 }
 
@@ -32,6 +34,7 @@ export class UpdateCompetitionDto {
   @IsOptional()
   @IsString()
   @MinLength(1)
+  @MaxLength(200)
   name?: string;
 
   @IsOptional()
@@ -40,6 +43,7 @@ export class UpdateCompetitionDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   location?: string;
 
   @IsOptional()

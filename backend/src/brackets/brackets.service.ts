@@ -34,77 +34,79 @@ export class BracketsService {
       include: { competitors: true },
     });
 
-    const summary = [];
+    return this.prisma.$transaction(async (tx) => {
+      const summary = [];
 
-    for (const category of categories) {
-      const competitorCount = category.competitors.length;
-      if (competitorCount < 2) continue;
+      for (const category of categories) {
+        const competitorCount = category.competitors.length;
+        if (competitorCount < 2) continue;
 
-      let bracketType: BracketType;
-      if (competitorCount <= 4) {
-        bracketType = BracketType.ROUND_ROBIN;
-      } else if (competitorCount <= 7) {
-        bracketType = BracketType.SINGLE_REPECHAGE;
-      } else {
-        bracketType = BracketType.DOUBLE_REPECHAGE;
-      }
+        let bracketType: BracketType;
+        if (competitorCount <= 4) {
+          bracketType = BracketType.ROUND_ROBIN;
+        } else if (competitorCount <= 7) {
+          bracketType = BracketType.SINGLE_REPECHAGE;
+        } else {
+          bracketType = BracketType.DOUBLE_REPECHAGE;
+        }
 
-      await this.prisma.category.update({
-        where: { id: category.id },
-        data: { bracketType },
-      });
+        await tx.category.update({
+          where: { id: category.id },
+          data: { bracketType },
+        });
 
-      await this.prisma.match.deleteMany({
-        where: { categoryId: category.id },
-      });
+        await tx.match.deleteMany({
+          where: { categoryId: category.id },
+        });
 
-      const competitorIds = category.competitors.map((c) => c.id);
-      let matches: { round: number; poolPosition: number; competitor1Id: string | null; competitor2Id: string | null }[];
+        const competitorIds = category.competitors.map((c) => c.id);
+        let matches: { round: number; poolPosition: number; competitor1Id: string | null; competitor2Id: string | null }[];
 
-      if (bracketType === BracketType.ROUND_ROBIN) {
-        const pairings = generateRoundRobinMatches(competitorCount);
-        matches = pairings.map((p) => ({
-          round: p.round,
-          poolPosition: p.poolPosition,
-          competitor1Id: p.competitor1Index !== null ? competitorIds[p.competitor1Index] : null,
-          competitor2Id: p.competitor2Index !== null ? competitorIds[p.competitor2Index] : null,
-        }));
-      } else {
-        const pairings = generateSingleRepechageMatches(competitorCount);
-        matches = pairings.map((p) => ({
-          round: p.round,
-          poolPosition: p.poolPosition,
-          competitor1Id: p.competitor1Index !== null ? competitorIds[p.competitor1Index] : null,
-          competitor2Id: p.competitor2Index !== null ? competitorIds[p.competitor2Index] : null,
-        }));
-      }
+        if (bracketType === BracketType.ROUND_ROBIN) {
+          const pairings = generateRoundRobinMatches(competitorCount);
+          matches = pairings.map((p) => ({
+            round: p.round,
+            poolPosition: p.poolPosition,
+            competitor1Id: p.competitor1Index !== null ? competitorIds[p.competitor1Index] : null,
+            competitor2Id: p.competitor2Index !== null ? competitorIds[p.competitor2Index] : null,
+          }));
+        } else {
+          const pairings = generateSingleRepechageMatches(competitorCount);
+          matches = pairings.map((p) => ({
+            round: p.round,
+            poolPosition: p.poolPosition,
+            competitor1Id: p.competitor1Index !== null ? competitorIds[p.competitor1Index] : null,
+            competitor2Id: p.competitor2Index !== null ? competitorIds[p.competitor2Index] : null,
+          }));
+        }
 
-      let sequenceNum = 0;
-      for (const match of matches) {
-        sequenceNum++;
-        await this.prisma.match.create({
-          data: {
-            categoryId: category.id,
-            round: match.round,
-            poolPosition: match.poolPosition,
-            competitor1Id: match.competitor1Id,
-            competitor2Id: match.competitor2Id,
-            duration: competition.matchDuration,
-            sequenceNum,
-          },
+        let sequenceNum = 0;
+        for (const match of matches) {
+          sequenceNum++;
+          await tx.match.create({
+            data: {
+              categoryId: category.id,
+              round: match.round,
+              poolPosition: match.poolPosition,
+              competitor1Id: match.competitor1Id,
+              competitor2Id: match.competitor2Id,
+              duration: competition.matchDuration,
+              sequenceNum,
+            },
+          });
+        }
+
+        summary.push({
+          categoryId: category.id,
+          categoryName: category.name,
+          competitorCount,
+          bracketType,
+          matchCount: matches.length,
         });
       }
 
-      summary.push({
-        categoryId: category.id,
-        categoryName: category.name,
-        competitorCount,
-        bracketType,
-        matchCount: matches.length,
-      });
-    }
-
-    return summary;
+      return summary;
+    });
   }
 
   async getBrackets(competitionId: string) {

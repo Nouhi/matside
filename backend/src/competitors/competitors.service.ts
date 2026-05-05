@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Gender, RegistrationStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -28,6 +33,17 @@ export class CompetitorsService {
       throw new BadRequestException('Competition is not open for registration');
     }
 
+    if (data.email) {
+      const existing = await this.prisma.competitor.findFirst({
+        where: { competitionId, email: data.email },
+      });
+      if (existing) {
+        throw new BadRequestException(
+          'A competitor with this email is already registered',
+        );
+      }
+    }
+
     return this.prisma.competitor.create({
       data: {
         competitionId,
@@ -49,12 +65,16 @@ export class CompetitorsService {
     });
   }
 
-  async updateStatus(id: string, status: RegistrationStatus) {
+  async updateStatus(id: string, organizerId: string, status: RegistrationStatus) {
     const competitor = await this.prisma.competitor.findUnique({
       where: { id },
+      include: { competition: true },
     });
     if (!competitor) {
       throw new NotFoundException('Competitor not found');
+    }
+    if (competitor.competition.organizerId !== organizerId) {
+      throw new ForbiddenException();
     }
 
     return this.prisma.competitor.update({

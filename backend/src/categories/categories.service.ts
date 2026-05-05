@@ -29,73 +29,75 @@ export class CategoriesService {
       );
     }
 
-    await this.prisma.competitor.updateMany({
-      where: { competitionId },
-      data: { categoryId: null },
-    });
-    await this.prisma.category.deleteMany({
-      where: { competitionId },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      await tx.competitor.updateMany({
+        where: { competitionId },
+        data: { categoryId: null },
+      });
+      await tx.category.deleteMany({
+        where: { competitionId },
+      });
 
-    const competitors = await this.prisma.competitor.findMany({
-      where: {
-        competitionId,
-        registrationStatus: 'WEIGHED_IN',
-      },
-    });
-
-    const categoryMap = new Map<string, { weightClass: WeightClass; competitorIds: string[] }>();
-
-    for (const competitor of competitors) {
-      if (!competitor.weight) continue;
-
-      const ageGroup = determineAgeGroup(competitor.dateOfBirth, competition.date);
-      const weightClass = this.findWeightClass(
-        competitor.gender as Gender,
-        ageGroup,
-        Number(competitor.weight),
-      );
-
-      if (!weightClass) continue;
-
-      const key = `${weightClass.gender}-${weightClass.ageGroup}-${weightClass.label}`;
-      if (!categoryMap.has(key)) {
-        categoryMap.set(key, { weightClass, competitorIds: [] });
-      }
-      categoryMap.get(key)!.competitorIds.push(competitor.id);
-    }
-
-    const createdCategories = [];
-
-    for (const [, { weightClass, competitorIds }] of categoryMap) {
-      if (competitorIds.length === 0) continue;
-
-      const genderLabel = weightClass.gender === 'MALE' ? 'Men' : 'Women';
-      const name = `${weightClass.ageGroup} ${genderLabel} ${weightClass.label}kg`;
-
-      const category = await this.prisma.category.create({
-        data: {
+      const competitors = await tx.competitor.findMany({
+        where: {
           competitionId,
-          name,
-          gender: weightClass.gender,
-          ageGroup: weightClass.ageGroup,
-          minWeight: weightClass.minWeight,
-          maxWeight: weightClass.maxWeight,
+          registrationStatus: 'WEIGHED_IN',
         },
       });
 
-      await this.prisma.competitor.updateMany({
-        where: { id: { in: competitorIds } },
-        data: { categoryId: category.id },
-      });
+      const categoryMap = new Map<string, { weightClass: WeightClass; competitorIds: string[] }>();
 
-      createdCategories.push({
-        ...category,
-        competitorCount: competitorIds.length,
-      });
-    }
+      for (const competitor of competitors) {
+        if (!competitor.weight) continue;
 
-    return createdCategories;
+        const ageGroup = determineAgeGroup(competitor.dateOfBirth, competition.date);
+        const weightClass = this.findWeightClass(
+          competitor.gender as Gender,
+          ageGroup,
+          Number(competitor.weight),
+        );
+
+        if (!weightClass) continue;
+
+        const key = `${weightClass.gender}-${weightClass.ageGroup}-${weightClass.label}`;
+        if (!categoryMap.has(key)) {
+          categoryMap.set(key, { weightClass, competitorIds: [] });
+        }
+        categoryMap.get(key)!.competitorIds.push(competitor.id);
+      }
+
+      const createdCategories = [];
+
+      for (const [, { weightClass, competitorIds }] of categoryMap) {
+        if (competitorIds.length === 0) continue;
+
+        const genderLabel = weightClass.gender === 'MALE' ? 'Men' : 'Women';
+        const name = `${weightClass.ageGroup} ${genderLabel} ${weightClass.label}kg`;
+
+        const category = await tx.category.create({
+          data: {
+            competitionId,
+            name,
+            gender: weightClass.gender,
+            ageGroup: weightClass.ageGroup,
+            minWeight: weightClass.minWeight,
+            maxWeight: weightClass.maxWeight,
+          },
+        });
+
+        await tx.competitor.updateMany({
+          where: { id: { in: competitorIds } },
+          data: { categoryId: category.id },
+        });
+
+        createdCategories.push({
+          ...category,
+          competitorCount: competitorIds.length,
+        });
+      }
+
+      return createdCategories;
+    });
   }
 
   async assignCompetitor(competitorId: string, organizerId: string) {
