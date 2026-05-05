@@ -99,6 +99,12 @@ export function CompetitionDetailPage() {
     queryFn: () => api.get(`/competitions/${id}/categories`),
   });
 
+  const { data: brackets = [] } = useQuery<Category[]>({
+    queryKey: ['brackets', id],
+    queryFn: () => api.get(`/competitions/${id}/brackets`),
+    enabled: activeTab === 'brackets',
+  });
+
   const statusMutation = useMutation({
     mutationFn: (status: string) => api.patch(`/competitions/${id}`, { status }),
     onSuccess: () => {
@@ -122,6 +128,7 @@ export function CompetitionDetailPage() {
     mutationFn: () => api.post<BracketSummary[]>(`/competitions/${id}/brackets/generate`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['categories', id] });
+      queryClient.invalidateQueries({ queryKey: ['brackets', id] });
       setActiveTab('brackets');
     },
   });
@@ -262,7 +269,7 @@ export function CompetitionDetailPage() {
 
         {activeTab === 'brackets' && (
           <BracketsTab
-            categories={categories}
+            categories={brackets}
             expandedCategory={expandedCategory}
             onToggle={fetchCategoryDetail}
             competitionId={id!}

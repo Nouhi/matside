@@ -14,6 +14,8 @@ export default defineConfig({
     proxy: {
       '/auth': 'http://localhost:3000',
       '/competitions': 'http://localhost:3000',
+      '/categories': 'http://localhost:3000',
+      '/competitors': 'http://localhost:3000',
     },
   },
 })
