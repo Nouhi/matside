@@ -1,0 +1,205 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Auth ───
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String   @default("")
+  role         UserRole @default(ORGANIZER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  competitions Competition[]
+}
+
+enum UserRole {
+  ORGANIZER
+  ADMIN
+}
+
+// ─── Competition ───
+
+model Competition {
+  id               String            @id @default(cuid())
+  name             String
+  date             DateTime
+  location         String            @default("")
+  status           CompetitionStatus @default(DRAFT)
+  organizerId      String
+  organizer        User              @relation(fields: [organizerId], references: [id])
+  matchDuration    Int               @default(240)
+  goldenScoreLimit Int               @default(0)
+
+  categories  Category[]
+  competitors Competitor[]
+  mats        Mat[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizerId])
+}
+
+enum CompetitionStatus {
+  DRAFT
+  REGISTRATION
+  WEIGH_IN
+  ACTIVE
+  COMPLETED
+}
+
+// ─── Category ───
+
+model Category {
+  id            String      @id @default(cuid())
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  name          String
+  gender        Gender
+  ageGroup      AgeGroup
+  minWeight     Decimal
+  maxWeight     Decimal
+  bracketType   BracketType @default(ROUND_ROBIN)
+
+  competitors Competitor[]
+  matches     Match[]
+
+  @@index([competitionId])
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum AgeGroup {
+  U13
+  U15
+  CADET
+  JUNIOR
+  SENIOR
+  VETERAN
+}
+
+enum BracketType {
+  ROUND_ROBIN
+  SINGLE_REPECHAGE
+  DOUBLE_REPECHAGE
+}
+
+// ─── Competitor ───
+
+model Competitor {
+  id                 String             @id @default(cuid())
+  competitionId      String
+  competition        Competition        @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  categoryId         String?
+  category           Category?          @relation(fields: [categoryId], references: [id])
+  firstName          String
+  lastName           String
+  email              String             @default("")
+  dateOfBirth        DateTime
+  gender             Gender
+  weight             Decimal?
+  belt               Belt               @default(WHITE)
+  club               String             @default("")
+  registrationStatus RegistrationStatus @default(REGISTERED)
+
+  matchesAsCompetitor1 Match[] @relation("Competitor1")
+  matchesAsCompetitor2 Match[] @relation("Competitor2")
+  matchesWon           Match[] @relation("Winner")
+
+  createdAt DateTime @default(now())
+
+  @@index([competitionId])
+  @@index([categoryId])
+}
+
+enum Belt {
+  WHITE
+  YELLOW
+  ORANGE
+  GREEN
+  BLUE
+  BROWN
+  BLACK_1DAN
+  BLACK_2DAN
+  BLACK_3DAN
+  BLACK_4DAN
+  BLACK_5DAN
+}
+
+enum RegistrationStatus {
+  REGISTERED
+  WEIGHED_IN
+  WITHDRAWN
+}
+
+// ─── Mat ───
+
+model Mat {
+  id             String      @id @default(cuid())
+  competitionId  String
+  competition    Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  number         Int
+  pin            String      @default("")
+  currentMatchId String?
+
+  matches Match[]
+
+  @@unique([competitionId, number])
+  @@index([competitionId])
+}
+
+// ─── Match ───
+
+model Match {
+  id            String      @id @default(cuid())
+  categoryId    String
+  category      Category    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  matId         String?
+  mat           Mat?        @relation(fields: [matId], references: [id])
+  round         Int         @default(0)
+  poolPosition  Int         @default(0)
+  competitor1Id String?
+  competitor1   Competitor? @relation("Competitor1", fields: [competitor1Id], references: [id])
+  competitor2Id String?
+  competitor2   Competitor? @relation("Competitor2", fields: [competitor2Id], references: [id])
+  winnerId      String?
+  winner        Competitor? @relation("Winner", fields: [winnerId], references: [id])
+  winMethod     WinMethod?
+  scores        Json?
+  status        MatchStatus @default(SCHEDULED)
+  duration      Int         @default(240)
+  goldenScore   Boolean     @default(false)
+  sequenceNum   Int         @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([categoryId])
+  @@index([matId])
+}
+
+enum WinMethod {
+  IPPON
+  WAZA_ARI
+  DECISION
+  HANSOKU_MAKE
+  FUSEN_GACHI
+  KIKEN_GACHI
+}
+
+enum MatchStatus {
+  SCHEDULED
+  ACTIVE
+  COMPLETED
+}
