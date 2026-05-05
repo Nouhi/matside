@@ -2,6 +2,7 @@ import { useState, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { toast } from '@/lib/toast';
 import { Plus, MapPin, Calendar } from 'lucide-react';
 
 interface Competition {
@@ -25,6 +26,7 @@ export function CompetitionsPage() {
   const [formName, setFormName] = useState('');
   const [formDate, setFormDate] = useState('');
   const [formLocation, setFormLocation] = useState('');
+  const [formError, setFormError] = useState('');
   const queryClient = useQueryClient();
 
   const { data: competitions = [], isLoading } = useQuery<Competition[]>({
@@ -41,11 +43,18 @@ export function CompetitionsPage() {
       setFormName('');
       setFormDate('');
       setFormLocation('');
+      setFormError('');
+      toast('Competition created', 'success');
+    },
+    onError: (err: Error) => {
+      setFormError(err.message);
+      toast(err.message);
     },
   });
 
   function handleCreate(e: FormEvent) {
     e.preventDefault();
+    setFormError('');
     createMutation.mutate({ name: formName, date: formDate, location: formLocation });
   }
 
@@ -115,6 +124,11 @@ export function CompetitionsPage() {
                 />
               </div>
             </div>
+            {formError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-md text-red-700 text-sm">
+                {formError}
+              </div>
+            )}
             <div className="flex gap-3">
               <button
                 type="submit"

@@ -1,6 +1,7 @@
 import { useState, FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '@/lib/api';
+import { toast } from '@/lib/toast';
 
 const BELTS = [
   'WHITE',
@@ -43,8 +44,11 @@ export function RegisterPage() {
         club,
       });
       setSubmitted(true);
+      toast('Registration complete!', 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed');
+      const message = err instanceof Error ? err.message : 'Registration failed';
+      setError(message);
+      toast(message);
     } finally {
       setLoading(false);
     }

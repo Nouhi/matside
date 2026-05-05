@@ -1,6 +1,7 @@
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { toast } from '@/lib/toast';
 import { MapPin, Calendar, Users, Copy, Check, Layers, Swords } from 'lucide-react';
 import { useState } from 'react';
 import { BracketView } from '@/components/BracketView';
@@ -107,21 +108,31 @@ export function CompetitionDetailPage() {
 
   const statusMutation = useMutation({
     mutationFn: (status: string) => api.patch(`/competitions/${id}`, { status }),
-    onSuccess: () => {
+    onSuccess: (_data, status) => {
       queryClient.invalidateQueries({ queryKey: ['competition', id] });
       queryClient.invalidateQueries({ queryKey: ['competitions'] });
+      toast(`Status updated to ${status}`, 'success');
     },
+    onError: (err: Error) => toast(err.message),
   });
 
   const weighInMutation = useMutation({
     mutationFn: (competitorId: string) =>
       api.patch(`/competitions/${id}/competitors/${competitorId}/status`, { status: 'WEIGHED_IN' }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['competitors', id] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['competitors', id] });
+      toast('Weigh-in confirmed', 'success');
+    },
+    onError: (err: Error) => toast(err.message),
   });
 
   const generateCategoriesMutation = useMutation({
     mutationFn: () => api.post(`/competitions/${id}/categories/generate`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['categories', id] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['categories', id] });
+      toast('Categories generated', 'success');
+    },
+    onError: (err: Error) => toast(err.message),
   });
 
   const generateBracketsMutation = useMutation({
@@ -130,7 +141,9 @@ export function CompetitionDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['categories', id] });
       queryClient.invalidateQueries({ queryKey: ['brackets', id] });
       setActiveTab('brackets');
+      toast('Brackets generated', 'success');
     },
+    onError: (err: Error) => toast(err.message),
   });
 
   function getNextStatus(current: string): string | null {
@@ -147,7 +160,7 @@ export function CompetitionDetailPage() {
   }
 
   if (loadingComp) {
-    return <div className="flex items-center justify-center h-64 text-gray-500">Loading...</div>;
+    return <div className="flex items-center justify-center h-64 text-gray-500">Loading competition...</div>;
   }
 
   if (!competition) {

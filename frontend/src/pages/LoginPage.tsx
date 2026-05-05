@@ -96,7 +96,7 @@ export function LoginPage() {
             disabled={loading}
             className="w-full py-2.5 bg-gray-900 text-white rounded-md font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {loading ? 'Loading...' : isRegister ? 'Create Account' : 'Sign In'}
+            {loading ? (isRegister ? 'Creating account...' : 'Signing in...') : isRegister ? 'Create Account' : 'Sign In'}
           </button>
         </form>
 
