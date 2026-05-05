@@ -65,6 +65,45 @@ export class CompetitorsService {
     });
   }
 
+  async updateWeight(id: string, organizerId: string, weight: number) {
+    const competitor = await this.prisma.competitor.findUnique({
+      where: { id },
+      include: { competition: true },
+    });
+    if (!competitor) {
+      throw new NotFoundException('Competitor not found');
+    }
+    if (competitor.competition.organizerId !== organizerId) {
+      throw new ForbiddenException();
+    }
+    if (competitor.competition.status !== 'WEIGH_IN') {
+      throw new BadRequestException('Competition must be in WEIGH_IN status to update weight');
+    }
+
+    return this.prisma.competitor.update({
+      where: { id },
+      data: { weight, categoryId: null },
+    });
+  }
+
+  async withdraw(id: string, organizerId: string) {
+    const competitor = await this.prisma.competitor.findUnique({
+      where: { id },
+      include: { competition: true },
+    });
+    if (!competitor) {
+      throw new NotFoundException('Competitor not found');
+    }
+    if (competitor.competition.organizerId !== organizerId) {
+      throw new ForbiddenException();
+    }
+
+    return this.prisma.competitor.update({
+      where: { id },
+      data: { registrationStatus: RegistrationStatus.WITHDRAWN, categoryId: null },
+    });
+  }
+
   async updateStatus(id: string, organizerId: string, status: RegistrationStatus) {
     const competitor = await this.prisma.competitor.findUnique({
       where: { id },

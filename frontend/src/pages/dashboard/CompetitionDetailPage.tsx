@@ -126,6 +126,26 @@ export function CompetitionDetailPage() {
     onError: (err: Error) => toast(err.message),
   });
 
+  const updateWeightMutation = useMutation({
+    mutationFn: ({ competitorId, weight }: { competitorId: string; weight: number }) =>
+      api.patch(`/competitions/${id}/competitors/${competitorId}/weight`, { weight }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['competitors', id] });
+      toast('Weight updated', 'success');
+    },
+    onError: (err: Error) => toast(err.message),
+  });
+
+  const withdrawMutation = useMutation({
+    mutationFn: (competitorId: string) =>
+      api.patch(`/competitions/${id}/competitors/${competitorId}/withdraw`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['competitors', id] });
+      toast('Competitor withdrawn', 'success');
+    },
+    onError: (err: Error) => toast(err.message),
+  });
+
   const generateCategoriesMutation = useMutation({
     mutationFn: () => api.post(`/competitions/${id}/categories/generate`),
     onSuccess: () => {
@@ -267,6 +287,8 @@ export function CompetitionDetailPage() {
             competitors={competitors}
             isWeighIn={isWeighIn}
             onWeighIn={(cId) => weighInMutation.mutate(cId)}
+            onUpdateWeight={(cId, w) => updateWeightMutation.mutate({ competitorId: cId, weight: w })}
+            onWithdraw={(cId) => withdrawMutation.mutate(cId)}
             weighInPending={weighInMutation.isPending}
           />
         )}
@@ -287,13 +309,20 @@ function CompetitorsTab({
   competitors,
   isWeighIn,
   onWeighIn,
+  onUpdateWeight,
+  onWithdraw,
   weighInPending,
 }: {
   competitors: Competitor[];
   isWeighIn: boolean;
   onWeighIn: (id: string) => void;
+  onUpdateWeight: (id: string, weight: number) => void;
+  onWithdraw: (id: string) => void;
   weighInPending: boolean;
 }) {
+  const [editingWeight, setEditingWeight] = useState<string | null>(null);
+  const [weightValue, setWeightValue] = useState('');
+
   if (competitors.length === 0) {
     return <div className="p-6 text-center text-gray-500">No competitors registered yet</div>;
   }
@@ -309,15 +338,54 @@ function CompetitorsTab({
             <th className="text-left px-6 py-3 font-medium text-gray-500">Gender</th>
             <th className="text-left px-6 py-3 font-medium text-gray-500">Belt</th>
             <th className="text-left px-6 py-3 font-medium text-gray-500">Status</th>
-            {isWeighIn && <th className="text-left px-6 py-3 font-medium text-gray-500">Action</th>}
+            {isWeighIn && <th className="text-left px-6 py-3 font-medium text-gray-500">Actions</th>}
           </tr>
         </thead>
         <tbody>
           {competitors.map((c) => (
-            <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50">
+            <tr key={c.id} className={`border-b border-gray-100 hover:bg-gray-50 ${c.registrationStatus === 'WITHDRAWN' ? 'opacity-50' : ''}`}>
               <td className="px-6 py-3 font-medium text-gray-900">{c.firstName} {c.lastName}</td>
               <td className="px-6 py-3 text-gray-600">{c.club}</td>
-              <td className="px-6 py-3 text-gray-600">{c.weight} kg</td>
+              <td className="px-6 py-3 text-gray-600">
+                {isWeighIn && editingWeight === c.id ? (
+                  <form
+                    className="flex items-center gap-1"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const w = parseFloat(weightValue);
+                      if (w > 0) {
+                        onUpdateWeight(c.id, w);
+                        setEditingWeight(null);
+                      }
+                    }}
+                  >
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="1"
+                      max="500"
+                      value={weightValue}
+                      onChange={(e) => setWeightValue(e.target.value)}
+                      className="w-20 px-2 py-1 text-xs border border-gray-300 rounded"
+                      autoFocus
+                    />
+                    <button type="submit" className="px-2 py-1 text-xs bg-gray-900 text-white rounded hover:bg-gray-800">Save</button>
+                    <button type="button" onClick={() => setEditingWeight(null)} className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+                  </form>
+                ) : (
+                  <span
+                    className={isWeighIn && c.registrationStatus !== 'WITHDRAWN' ? 'cursor-pointer hover:underline' : ''}
+                    onClick={() => {
+                      if (isWeighIn && c.registrationStatus !== 'WITHDRAWN') {
+                        setEditingWeight(c.id);
+                        setWeightValue(String(c.weight ?? ''));
+                      }
+                    }}
+                  >
+                    {c.weight} kg
+                  </span>
+                )}
+              </td>
               <td className="px-6 py-3 text-gray-600">{c.gender}</td>
               <td className="px-6 py-3 text-gray-600">{c.belt.replace(/_/g, ' ')}</td>
               <td className="px-6 py-3">
@@ -327,15 +395,25 @@ function CompetitorsTab({
               </td>
               {isWeighIn && (
                 <td className="px-6 py-3">
-                  {c.registrationStatus === 'REGISTERED' && (
-                    <button
-                      onClick={() => onWeighIn(c.id)}
-                      disabled={weighInPending}
-                      className="px-3 py-1 bg-amber-100 text-amber-700 rounded text-xs font-medium hover:bg-amber-200 transition-colors"
-                    >
-                      Confirm Weigh-in
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {c.registrationStatus === 'REGISTERED' && (
+                      <button
+                        onClick={() => onWeighIn(c.id)}
+                        disabled={weighInPending}
+                        className="px-3 py-1 bg-amber-100 text-amber-700 rounded text-xs font-medium hover:bg-amber-200 transition-colors"
+                      >
+                        Confirm Weigh-in
+                      </button>
+                    )}
+                    {c.registrationStatus !== 'WITHDRAWN' && (
+                      <button
+                        onClick={() => onWithdraw(c.id)}
+                        className="px-3 py-1 bg-red-50 text-red-600 rounded text-xs font-medium hover:bg-red-100 transition-colors"
+                      >
+                        Withdraw
+                      </button>
+                    )}
+                  </div>
                 </td>
               )}
             </tr>

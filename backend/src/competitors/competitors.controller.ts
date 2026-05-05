@@ -64,6 +64,13 @@ export class UpdateStatusDto {
   status: RegistrationStatus;
 }
 
+export class UpdateWeightDto {
+  @IsNumber()
+  @Min(1)
+  @Max(500)
+  weight: number;
+}
+
 @Controller('competitions/:competitionId/competitors')
 export class CompetitorsController {
   constructor(private competitorsService: CompetitorsService) {}
@@ -98,5 +105,26 @@ export class CompetitorsController {
   ) {
     const user = req.user as { sub: string; email: string };
     return this.competitorsService.updateStatus(id, user.sub, dto.status);
+  }
+
+  @Patch(':id/weight')
+  @UseGuards(JwtAuthGuard)
+  updateWeight(
+    @Req() req: express.Request,
+    @Param('id') id: string,
+    @Body() dto: UpdateWeightDto,
+  ) {
+    const user = req.user as { sub: string; email: string };
+    return this.competitorsService.updateWeight(id, user.sub, dto.weight);
+  }
+
+  @Patch(':id/withdraw')
+  @UseGuards(JwtAuthGuard)
+  withdraw(
+    @Req() req: express.Request,
+    @Param('id') id: string,
+  ) {
+    const user = req.user as { sub: string; email: string };
+    return this.competitorsService.withdraw(id, user.sub);
   }
 }
