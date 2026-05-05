@@ -34,7 +34,7 @@ function App() {
         <Route path="competitions" element={<CompetitionsPage />} />
         <Route path="competitions/:id" element={<CompetitionDetailPage />} />
       </Route>
-      <Route path="/dashboard/competitions/:id/register" element={<RegisterPage />} />
+      <Route path="/competitions/:id/register" element={<RegisterPage />} />
     </Routes>
   );
 }

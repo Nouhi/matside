@@ -1,7 +1,7 @@
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { MapPin, Calendar, Users, Copy, Check } from 'lucide-react';
+import { MapPin, Calendar, Users, Copy, Check, Layers, Swords, ChevronDown, ChevronUp } from 'lucide-react';
 import { useState } from 'react';
 
 interface Competition {
@@ -22,7 +22,37 @@ interface Competitor {
   weight: number;
   belt: string;
   club: string;
+  registrationStatus: string;
+}
+
+interface Match {
+  id: string;
+  round: number;
+  poolPosition: number;
   status: string;
+  competitor1?: { firstName: string; lastName: string };
+  competitor2?: { firstName: string; lastName: string };
+  winner?: { firstName: string; lastName: string };
+  winMethod?: string;
+}
+
+interface Category {
+  id: string;
+  name: string;
+  gender: string;
+  ageGroup: string;
+  bracketType: string;
+  competitors: Competitor[];
+  matches: Match[];
+  _count?: { competitors: number };
+}
+
+interface BracketSummary {
+  categoryId: string;
+  categoryName: string;
+  competitorCount: number;
+  bracketType: string;
+  matchCount: number;
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -33,21 +63,40 @@ const STATUS_STYLES: Record<string, string> = {
   COMPLETED: 'bg-slate-100 text-slate-700',
 };
 
+const BRACKET_LABELS: Record<string, string> = {
+  ROUND_ROBIN: 'Round Robin',
+  SINGLE_REPECHAGE: 'Single Repechage',
+  DOUBLE_REPECHAGE: 'Double Repechage',
+};
+
 const STATUS_FLOW = ['DRAFT', 'REGISTRATION', 'WEIGH_IN', 'ACTIVE', 'COMPLETED'];
+
+const REG_STATUS_STYLES: Record<string, string> = {
+  REGISTERED: 'bg-blue-100 text-blue-700',
+  WEIGHED_IN: 'bg-green-100 text-green-700',
+  WITHDRAWN: 'bg-red-100 text-red-700',
+};
 
 export function CompetitionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
+  const [activeTab, setActiveTab] = useState<'competitors' | 'categories' | 'brackets'>('competitors');
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
 
   const { data: competition, isLoading: loadingComp } = useQuery<Competition>({
     queryKey: ['competition', id],
     queryFn: () => api.get(`/competitions/${id}`),
   });
 
-  const { data: competitors = [], isLoading: loadingCompetitors } = useQuery<Competitor[]>({
+  const { data: competitors = [] } = useQuery<Competitor[]>({
     queryKey: ['competitors', id],
     queryFn: () => api.get(`/competitions/${id}/competitors`),
+  });
+
+  const { data: categories = [] } = useQuery<Category[]>({
+    queryKey: ['categories', id],
+    queryFn: () => api.get(`/competitions/${id}/categories`),
   });
 
   const statusMutation = useMutation({
@@ -58,6 +107,25 @@ export function CompetitionDetailPage() {
     },
   });
 
+  const weighInMutation = useMutation({
+    mutationFn: (competitorId: string) =>
+      api.patch(`/competitions/${id}/competitors/${competitorId}/status`, { status: 'WEIGHED_IN' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['competitors', id] }),
+  });
+
+  const generateCategoriesMutation = useMutation({
+    mutationFn: () => api.post(`/competitions/${id}/categories/generate`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['categories', id] }),
+  });
+
+  const generateBracketsMutation = useMutation({
+    mutationFn: () => api.post<BracketSummary[]>(`/competitions/${id}/brackets/generate`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['categories', id] });
+      setActiveTab('brackets');
+    },
+  });
+
   function getNextStatus(current: string): string | null {
     const idx = STATUS_FLOW.indexOf(current);
     if (idx === -1 || idx === STATUS_FLOW.length - 1) return null;
@@ -65,29 +133,30 @@ export function CompetitionDetailPage() {
   }
 
   function copyRegistrationLink() {
-    const url = `${window.location.origin}/dashboard/competitions/${id}/register`;
+    const url = `${window.location.origin}/competitions/${id}/register`;
     navigator.clipboard.writeText(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
 
+  function fetchCategoryDetail(catId: string) {
+    setExpandedCategory(expandedCategory === catId ? null : catId);
+  }
+
   if (loadingComp) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-gray-500">Loading...</div>
-      </div>
-    );
+    return <div className="flex items-center justify-center h-64 text-gray-500">Loading...</div>;
   }
 
   if (!competition) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-gray-500">Competition not found</div>
-      </div>
-    );
+    return <div className="flex items-center justify-center h-64 text-gray-500">Competition not found</div>;
   }
 
   const nextStatus = getNextStatus(competition.status);
+  const isWeighIn = competition.status === 'WEIGH_IN';
+  const isActive = competition.status === 'ACTIVE';
+  const canGenerateCategories = isWeighIn;
+  const canGenerateBrackets = isWeighIn && categories.length > 0;
+  const weighedInCount = competitors.filter(c => c.registrationStatus === 'WEIGHED_IN').length;
 
   return (
     <div>
@@ -110,11 +179,7 @@ export function CompetitionDetailPage() {
               </span>
             </div>
           </div>
-          <span
-            className={`self-start px-3 py-1.5 rounded-full text-xs font-medium ${
-              STATUS_STYLES[competition.status] || STATUS_STYLES.DRAFT
-            }`}
-          >
+          <span className={`self-start px-3 py-1.5 rounded-full text-xs font-medium ${STATUS_STYLES[competition.status] || STATUS_STYLES.DRAFT}`}>
             {competition.status}
           </span>
         </div>
@@ -129,64 +194,281 @@ export function CompetitionDetailPage() {
               {statusMutation.isPending ? 'Updating...' : `Advance to ${nextStatus}`}
             </button>
           )}
-          <button
-            onClick={copyRegistrationLink}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors"
-          >
-            {copied ? <Check size={16} /> : <Copy size={16} />}
-            {copied ? 'Copied!' : 'Share Registration Link'}
-          </button>
+          {competition.status === 'REGISTRATION' && (
+            <button
+              onClick={copyRegistrationLink}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors"
+            >
+              {copied ? <Check size={16} /> : <Copy size={16} />}
+              {copied ? 'Copied!' : 'Share Registration Link'}
+            </button>
+          )}
+          {canGenerateCategories && (
+            <button
+              onClick={() => generateCategoriesMutation.mutate()}
+              disabled={generateCategoriesMutation.isPending}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              <Layers size={16} />
+              {generateCategoriesMutation.isPending ? 'Generating...' : `Generate Categories (${weighedInCount} weighed in)`}
+            </button>
+          )}
+          {canGenerateBrackets && (
+            <button
+              onClick={() => generateBracketsMutation.mutate()}
+              disabled={generateBracketsMutation.isPending}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-md text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+            >
+              <Swords size={16} />
+              {generateBracketsMutation.isPending ? 'Generating...' : 'Generate Brackets'}
+            </button>
+          )}
         </div>
       </div>
 
       <div className="bg-white rounded-lg border border-gray-200">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">
-            Registered Competitors ({competitors.length})
-          </h2>
+        <div className="border-b border-gray-200">
+          <nav className="flex">
+            {(['competitors', 'categories', 'brackets'] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === tab
+                    ? 'border-gray-900 text-gray-900'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {tab === 'competitors' && `Competitors (${competitors.length})`}
+                {tab === 'categories' && `Categories (${categories.length})`}
+                {tab === 'brackets' && 'Brackets'}
+              </button>
+            ))}
+          </nav>
         </div>
 
-        {loadingCompetitors ? (
-          <div className="p-6 text-center text-gray-500">Loading competitors...</div>
-        ) : competitors.length === 0 ? (
-          <div className="p-6 text-center text-gray-500">No competitors registered yet</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 bg-gray-50">
-                  <th className="text-left px-6 py-3 font-medium text-gray-500">Name</th>
-                  <th className="text-left px-6 py-3 font-medium text-gray-500">Email</th>
-                  <th className="text-left px-6 py-3 font-medium text-gray-500">Club</th>
-                  <th className="text-left px-6 py-3 font-medium text-gray-500">Weight</th>
-                  <th className="text-left px-6 py-3 font-medium text-gray-500">Belt</th>
-                  <th className="text-left px-6 py-3 font-medium text-gray-500">Gender</th>
-                  <th className="text-left px-6 py-3 font-medium text-gray-500">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {competitors.map((c) => (
-                  <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="px-6 py-3 font-medium text-gray-900">
-                      {c.firstName} {c.lastName}
-                    </td>
-                    <td className="px-6 py-3 text-gray-600">{c.email}</td>
-                    <td className="px-6 py-3 text-gray-600">{c.club}</td>
-                    <td className="px-6 py-3 text-gray-600">{c.weight} kg</td>
-                    <td className="px-6 py-3 text-gray-600">{c.belt}</td>
-                    <td className="px-6 py-3 text-gray-600">{c.gender}</td>
-                    <td className="px-6 py-3">
-                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
-                        {c.status || 'REGISTERED'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        {activeTab === 'competitors' && (
+          <CompetitorsTab
+            competitors={competitors}
+            isWeighIn={isWeighIn}
+            onWeighIn={(cId) => weighInMutation.mutate(cId)}
+            weighInPending={weighInMutation.isPending}
+          />
+        )}
+
+        {activeTab === 'categories' && (
+          <CategoriesTab categories={categories} />
+        )}
+
+        {activeTab === 'brackets' && (
+          <BracketsTab
+            categories={categories}
+            expandedCategory={expandedCategory}
+            onToggle={fetchCategoryDetail}
+            competitionId={id!}
+          />
         )}
       </div>
+    </div>
+  );
+}
+
+function CompetitorsTab({
+  competitors,
+  isWeighIn,
+  onWeighIn,
+  weighInPending,
+}: {
+  competitors: Competitor[];
+  isWeighIn: boolean;
+  onWeighIn: (id: string) => void;
+  weighInPending: boolean;
+}) {
+  if (competitors.length === 0) {
+    return <div className="p-6 text-center text-gray-500">No competitors registered yet</div>;
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-200 bg-gray-50">
+            <th className="text-left px-6 py-3 font-medium text-gray-500">Name</th>
+            <th className="text-left px-6 py-3 font-medium text-gray-500">Club</th>
+            <th className="text-left px-6 py-3 font-medium text-gray-500">Weight</th>
+            <th className="text-left px-6 py-3 font-medium text-gray-500">Gender</th>
+            <th className="text-left px-6 py-3 font-medium text-gray-500">Belt</th>
+            <th className="text-left px-6 py-3 font-medium text-gray-500">Status</th>
+            {isWeighIn && <th className="text-left px-6 py-3 font-medium text-gray-500">Action</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {competitors.map((c) => (
+            <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50">
+              <td className="px-6 py-3 font-medium text-gray-900">{c.firstName} {c.lastName}</td>
+              <td className="px-6 py-3 text-gray-600">{c.club}</td>
+              <td className="px-6 py-3 text-gray-600">{c.weight} kg</td>
+              <td className="px-6 py-3 text-gray-600">{c.gender}</td>
+              <td className="px-6 py-3 text-gray-600">{c.belt.replace(/_/g, ' ')}</td>
+              <td className="px-6 py-3">
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${REG_STATUS_STYLES[c.registrationStatus] || 'bg-gray-100 text-gray-700'}`}>
+                  {c.registrationStatus}
+                </span>
+              </td>
+              {isWeighIn && (
+                <td className="px-6 py-3">
+                  {c.registrationStatus === 'REGISTERED' && (
+                    <button
+                      onClick={() => onWeighIn(c.id)}
+                      disabled={weighInPending}
+                      className="px-3 py-1 bg-amber-100 text-amber-700 rounded text-xs font-medium hover:bg-amber-200 transition-colors"
+                    >
+                      Confirm Weigh-in
+                    </button>
+                  )}
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CategoriesTab({ categories }: { categories: Category[] }) {
+  if (categories.length === 0) {
+    return (
+      <div className="p-6 text-center text-gray-500">
+        No categories generated yet. Advance to WEIGH_IN status and generate categories.
+      </div>
+    );
+  }
+
+  return (
+    <div className="divide-y divide-gray-100">
+      {categories.map((cat) => (
+        <div key={cat.id} className="px-6 py-4 flex items-center justify-between">
+          <div>
+            <p className="font-medium text-gray-900">{cat.name}</p>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {BRACKET_LABELS[cat.bracketType] || cat.bracketType} · {cat._count?.competitors ?? cat.competitors?.length ?? 0} competitors
+            </p>
+          </div>
+          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+            cat.bracketType === 'ROUND_ROBIN' ? 'bg-purple-100 text-purple-700' :
+            cat.bracketType === 'SINGLE_REPECHAGE' ? 'bg-orange-100 text-orange-700' :
+            'bg-red-100 text-red-700'
+          }`}>
+            {BRACKET_LABELS[cat.bracketType] || cat.bracketType}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BracketsTab({
+  categories,
+  expandedCategory,
+  onToggle,
+  competitionId,
+}: {
+  categories: Category[];
+  expandedCategory: string | null;
+  onToggle: (id: string) => void;
+  competitionId: string;
+}) {
+  const categoriesWithMatches = categories.filter(c => (c.matches?.length ?? 0) > 0 || (c._count?.competitors ?? c.competitors?.length ?? 0) > 1);
+
+  if (categoriesWithMatches.length === 0) {
+    return (
+      <div className="p-6 text-center text-gray-500">
+        No brackets generated yet. Generate categories first, then generate brackets.
+      </div>
+    );
+  }
+
+  return (
+    <div className="divide-y divide-gray-100">
+      {categoriesWithMatches.map((cat) => (
+        <CategoryBracket
+          key={cat.id}
+          category={cat}
+          isExpanded={expandedCategory === cat.id}
+          onToggle={() => onToggle(cat.id)}
+          competitionId={competitionId}
+        />
+      ))}
+    </div>
+  );
+}
+
+function CategoryBracket({
+  category,
+  isExpanded,
+  onToggle,
+  competitionId,
+}: {
+  category: Category;
+  isExpanded: boolean;
+  onToggle: () => void;
+  competitionId: string;
+}) {
+  const { data: detail } = useQuery<Category>({
+    queryKey: ['category-detail', category.id],
+    queryFn: () => api.get(`/categories/${category.id}`),
+    enabled: isExpanded,
+  });
+
+  const matches = detail?.matches ?? category.matches ?? [];
+  const rounds = [...new Set(matches.map(m => m.round))].sort((a, b) => a - b);
+
+  return (
+    <div>
+      <button onClick={onToggle} className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+        <div className="text-left">
+          <p className="font-medium text-gray-900">{category.name}</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {BRACKET_LABELS[category.bracketType]} · {matches.length} matches
+          </p>
+        </div>
+        {isExpanded ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
+      </button>
+
+      {isExpanded && matches.length > 0 && (
+        <div className="px-6 pb-4">
+          {rounds.map((round) => (
+            <div key={round} className="mb-4">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Round {round}</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {matches.filter(m => m.round === round).map((match) => (
+                  <div key={match.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3 border border-gray-200">
+                    <div className="flex-1">
+                      <p className={`text-sm font-medium ${match.winner?.firstName === match.competitor1?.firstName ? 'text-green-700' : 'text-gray-900'}`}>
+                        {match.competitor1 ? `${match.competitor1.firstName} ${match.competitor1.lastName}` : 'BYE'}
+                      </p>
+                    </div>
+                    <span className="text-xs text-gray-400 px-3">vs</span>
+                    <div className="flex-1 text-right">
+                      <p className={`text-sm font-medium ${match.winner?.firstName === match.competitor2?.firstName ? 'text-green-700' : 'text-gray-900'}`}>
+                        {match.competitor2 ? `${match.competitor2.firstName} ${match.competitor2.lastName}` : 'BYE'}
+                      </p>
+                    </div>
+                    <span className={`ml-3 px-2 py-0.5 rounded text-xs font-medium ${
+                      match.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
+                      match.status === 'ACTIVE' ? 'bg-amber-100 text-amber-700' :
+                      'bg-gray-100 text-gray-500'
+                    }`}>
+                      {match.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
