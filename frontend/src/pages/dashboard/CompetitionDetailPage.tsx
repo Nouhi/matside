@@ -1,8 +1,9 @@
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { MapPin, Calendar, Users, Copy, Check, Layers, Swords, ChevronDown, ChevronUp } from 'lucide-react';
+import { MapPin, Calendar, Users, Copy, Check, Layers, Swords } from 'lucide-react';
 import { useState } from 'react';
+import { BracketView } from '@/components/BracketView';
 
 interface Competition {
   id: string;
@@ -82,7 +83,6 @@ export function CompetitionDetailPage() {
   const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'competitors' | 'categories' | 'brackets'>('competitors');
-  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
 
   const { data: competition, isLoading: loadingComp } = useQuery<Competition>({
     queryKey: ['competition', id],
@@ -146,10 +146,6 @@ export function CompetitionDetailPage() {
     setTimeout(() => setCopied(false), 2000);
   }
 
-  function fetchCategoryDetail(catId: string) {
-    setExpandedCategory(expandedCategory === catId ? null : catId);
-  }
-
   if (loadingComp) {
     return <div className="flex items-center justify-center h-64 text-gray-500">Loading...</div>;
   }
@@ -160,7 +156,6 @@ export function CompetitionDetailPage() {
 
   const nextStatus = getNextStatus(competition.status);
   const isWeighIn = competition.status === 'WEIGH_IN';
-  const isActive = competition.status === 'ACTIVE';
   const canGenerateCategories = isWeighIn;
   const canGenerateBrackets = isWeighIn && categories.length > 0;
   const weighedInCount = competitors.filter(c => c.registrationStatus === 'WEIGHED_IN').length;
@@ -268,12 +263,7 @@ export function CompetitionDetailPage() {
         )}
 
         {activeTab === 'brackets' && (
-          <BracketsTab
-            categories={brackets}
-            expandedCategory={expandedCategory}
-            onToggle={fetchCategoryDetail}
-            competitionId={id!}
-          />
+          <BracketView categories={brackets} />
         )}
       </div>
     </div>
@@ -375,107 +365,3 @@ function CategoriesTab({ categories }: { categories: Category[] }) {
   );
 }
 
-function BracketsTab({
-  categories,
-  expandedCategory,
-  onToggle,
-  competitionId,
-}: {
-  categories: Category[];
-  expandedCategory: string | null;
-  onToggle: (id: string) => void;
-  competitionId: string;
-}) {
-  const categoriesWithMatches = categories.filter(c => (c.matches?.length ?? 0) > 0 || (c._count?.competitors ?? c.competitors?.length ?? 0) > 1);
-
-  if (categoriesWithMatches.length === 0) {
-    return (
-      <div className="p-6 text-center text-gray-500">
-        No brackets generated yet. Generate categories first, then generate brackets.
-      </div>
-    );
-  }
-
-  return (
-    <div className="divide-y divide-gray-100">
-      {categoriesWithMatches.map((cat) => (
-        <CategoryBracket
-          key={cat.id}
-          category={cat}
-          isExpanded={expandedCategory === cat.id}
-          onToggle={() => onToggle(cat.id)}
-          competitionId={competitionId}
-        />
-      ))}
-    </div>
-  );
-}
-
-function CategoryBracket({
-  category,
-  isExpanded,
-  onToggle,
-  competitionId,
-}: {
-  category: Category;
-  isExpanded: boolean;
-  onToggle: () => void;
-  competitionId: string;
-}) {
-  const { data: detail } = useQuery<Category>({
-    queryKey: ['category-detail', category.id],
-    queryFn: () => api.get(`/categories/${category.id}`),
-    enabled: isExpanded,
-  });
-
-  const matches = detail?.matches ?? category.matches ?? [];
-  const rounds = [...new Set(matches.map(m => m.round))].sort((a, b) => a - b);
-
-  return (
-    <div>
-      <button onClick={onToggle} className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
-        <div className="text-left">
-          <p className="font-medium text-gray-900">{category.name}</p>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {BRACKET_LABELS[category.bracketType]} · {matches.length} matches
-          </p>
-        </div>
-        {isExpanded ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
-      </button>
-
-      {isExpanded && matches.length > 0 && (
-        <div className="px-6 pb-4">
-          {rounds.map((round) => (
-            <div key={round} className="mb-4">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Round {round}</p>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {matches.filter(m => m.round === round).map((match) => (
-                  <div key={match.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3 border border-gray-200">
-                    <div className="flex-1">
-                      <p className={`text-sm font-medium ${match.winner?.firstName === match.competitor1?.firstName ? 'text-green-700' : 'text-gray-900'}`}>
-                        {match.competitor1 ? `${match.competitor1.firstName} ${match.competitor1.lastName}` : 'BYE'}
-                      </p>
-                    </div>
-                    <span className="text-xs text-gray-400 px-3">vs</span>
-                    <div className="flex-1 text-right">
-                      <p className={`text-sm font-medium ${match.winner?.firstName === match.competitor2?.firstName ? 'text-green-700' : 'text-gray-900'}`}>
-                        {match.competitor2 ? `${match.competitor2.firstName} ${match.competitor2.lastName}` : 'BYE'}
-                      </p>
-                    </div>
-                    <span className={`ml-3 px-2 py-0.5 rounded text-xs font-medium ${
-                      match.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
-                      match.status === 'ACTIVE' ? 'bg-amber-100 text-amber-700' :
-                      'bg-gray-100 text-gray-500'
-                    }`}>
-                      {match.status}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
