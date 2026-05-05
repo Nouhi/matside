@@ -29,6 +29,14 @@ export class CategoriesService {
       );
     }
 
+    await this.prisma.competitor.updateMany({
+      where: { competitionId },
+      data: { categoryId: null },
+    });
+    await this.prisma.category.deleteMany({
+      where: { competitionId },
+    });
+
     const competitors = await this.prisma.competitor.findMany({
       where: {
         competitionId,
