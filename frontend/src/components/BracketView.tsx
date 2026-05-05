@@ -390,7 +390,8 @@ function EliminationBracket({ category }: { category: Category }) {
     return <div className="text-sm text-gray-500">Not enough competitors for a bracket.</div>;
   }
 
-  const { roundNames, roundCards, connectors, totalWidth, totalHeight, colWidth } = layout;
+  const { totalRounds, roundNames, roundCards, connectors, totalWidth, totalHeight, colWidth } = layout;
+  const showRepechage = competitorCount >= 5;
 
   return (
     <div className="overflow-x-auto pb-4">
@@ -434,6 +435,120 @@ function EliminationBracket({ category }: { category: Category }) {
             </div>
           ))
         )}
+      </div>
+
+      {showRepechage && (
+        <RepechageSection totalRounds={totalRounds} colWidth={colWidth} />
+      )}
+    </div>
+  );
+}
+
+const REP_CARD_H = 56;
+const REP_ROW_GAP = 8;
+const REP_COL_GAP = 40;
+
+function RepechageSection({ totalRounds, colWidth }: { totalRounds: number; colWidth: number }) {
+  const hasQuarters = totalRounds >= 3;
+
+  return (
+    <div className="mt-8 border-t border-gray-200 pt-6 space-y-6">
+      <RepechagePath label="Repechage A — Bronze Medal" hasQuarters={hasQuarters} colWidth={colWidth} />
+      <RepechagePath label="Repechage B — Bronze Medal" hasQuarters={hasQuarters} colWidth={colWidth} />
+    </div>
+  );
+}
+
+function RepechagePath({ label, hasQuarters, colWidth }: { label: string; hasQuarters: boolean; colWidth: number }) {
+  const steps = hasQuarters ? 3 : 2;
+  const stepLabels = hasQuarters
+    ? ['Repechage R1', 'Repechage R2', 'Bronze Medal']
+    : ['Repechage', 'Bronze Medal'];
+  const totalWidth = steps * (CARD_W + REP_COL_GAP) - REP_COL_GAP;
+  const totalHeight = HEADER_H + (hasQuarters ? 2 : 1) * (REP_CARD_H + REP_ROW_GAP);
+
+  const cards: { x: number; y: number; label: string }[] = [];
+
+  if (hasQuarters) {
+    cards.push({ x: 0, y: HEADER_H, label: 'QF Loser' });
+    cards.push({ x: 0, y: HEADER_H + REP_CARD_H + REP_ROW_GAP, label: 'QF Loser' });
+    cards.push({ x: CARD_W + REP_COL_GAP, y: HEADER_H + (REP_CARD_H + REP_ROW_GAP) / 2, label: 'vs SF Loser' });
+    cards.push({ x: 2 * (CARD_W + REP_COL_GAP), y: HEADER_H + (REP_CARD_H + REP_ROW_GAP) / 2, label: 'BRONZE' });
+  } else {
+    cards.push({ x: 0, y: HEADER_H, label: 'vs SF Loser' });
+    cards.push({ x: CARD_W + REP_COL_GAP, y: HEADER_H, label: 'BRONZE' });
+  }
+
+  const connectors: { x1: number; y1: number; x2: number; y2: number }[] = [];
+  if (hasQuarters) {
+    const topCY = HEADER_H + REP_CARD_H / 2;
+    const botCY = HEADER_H + REP_CARD_H + REP_ROW_GAP + REP_CARD_H / 2;
+    const midCY = HEADER_H + (REP_CARD_H + REP_ROW_GAP) / 2 + REP_CARD_H / 2;
+    const exitX = CARD_W;
+    const midX = exitX + REP_COL_GAP / 2;
+    const entryX = CARD_W + REP_COL_GAP;
+
+    connectors.push({ x1: exitX, y1: topCY, x2: midX, y2: topCY });
+    connectors.push({ x1: exitX, y1: botCY, x2: midX, y2: botCY });
+    connectors.push({ x1: midX, y1: topCY, x2: midX, y2: botCY });
+    connectors.push({ x1: midX, y1: midCY, x2: entryX, y2: midCY });
+
+    const exitX2 = entryX + CARD_W;
+    const midX2 = exitX2 + REP_COL_GAP / 2;
+    const entryX2 = 2 * (CARD_W + REP_COL_GAP);
+    connectors.push({ x1: exitX2, y1: midCY, x2: midX2, y2: midCY });
+    connectors.push({ x1: midX2, y1: midCY, x2: entryX2, y2: midCY });
+  } else {
+    const cy = HEADER_H + REP_CARD_H / 2;
+    const exitX = CARD_W;
+    const midX = exitX + REP_COL_GAP / 2;
+    const entryX = CARD_W + REP_COL_GAP;
+    connectors.push({ x1: exitX, y1: cy, x2: midX, y2: cy });
+    connectors.push({ x1: midX, y1: cy, x2: entryX, y2: cy });
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-sm font-semibold text-amber-700">{label}</span>
+        <div className="h-px flex-1 bg-amber-200" />
+      </div>
+      <div className="relative" style={{ width: totalWidth, height: totalHeight }}>
+        <svg className="absolute inset-0 pointer-events-none" width={totalWidth} height={totalHeight}>
+          {connectors.map((c, i) => (
+            <line key={i} x1={c.x1} y1={c.y1} x2={c.x2} y2={c.y2} stroke="#fbbf24" strokeWidth={1.5} strokeDasharray="4 3" />
+          ))}
+        </svg>
+
+        {stepLabels.map((sl, i) => (
+          <div
+            key={i}
+            className="absolute text-[10px] font-semibold text-amber-500 uppercase tracking-wide"
+            style={{ left: i * (CARD_W + REP_COL_GAP), top: 0 }}
+          >
+            {sl}
+          </div>
+        ))}
+
+        {cards.map((card, i) => (
+          <div
+            key={i}
+            className="absolute"
+            style={{ left: card.x, top: card.y, width: CARD_W, height: REP_CARD_H }}
+          >
+            <div className="w-full h-full rounded border border-dashed border-amber-300 bg-amber-50/50 flex flex-col overflow-hidden">
+              <div className="flex items-center px-2 flex-1 min-h-0">
+                <span className="text-xs text-amber-600/70 italic truncate">
+                  {card.label === 'BRONZE' ? 'Bronze medalist' : card.label}
+                </span>
+              </div>
+              <div className="border-t border-amber-200" />
+              <div className="flex items-center px-2 flex-1 min-h-0">
+                <span className="text-xs text-amber-600/70 italic truncate">TBD</span>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
