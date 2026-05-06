@@ -474,15 +474,54 @@ function CategoriesTab({ categories }: { categories: Category[] }) {
   );
 }
 
+interface AvailableMatch {
+  id: string;
+  round: number;
+  poolPosition: number;
+  status: string;
+  category: { name: string };
+  competitor1?: { firstName: string; lastName: string };
+  competitor2?: { firstName: string; lastName: string };
+}
+
 function MatsTab({ competitionId, mats }: { competitionId: string; mats: Mat[] }) {
   const queryClient = useQueryClient();
   const [matCount, setMatCount] = useState(2);
+
+  const { data: brackets = [] } = useQuery<Category[]>({
+    queryKey: ['brackets', competitionId],
+    queryFn: () => api.get(`/competitions/${competitionId}/brackets`),
+  });
+
+  const scheduledMatches: AvailableMatch[] = brackets.flatMap((cat) =>
+    (cat.matches ?? [])
+      .filter((m) => m.status === 'SCHEDULED' && m.competitor1 && m.competitor2)
+      .map((m) => ({
+        id: m.id,
+        round: m.round,
+        poolPosition: m.poolPosition,
+        status: m.status,
+        category: { name: cat.name },
+        competitor1: m.competitor1 ?? undefined,
+        competitor2: m.competitor2 ?? undefined,
+      }))
+  );
 
   const createMatsMutation = useMutation({
     mutationFn: (count: number) => api.post(`/competitions/${competitionId}/mats`, { count }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mats', competitionId] });
       toast('Mats created', 'success');
+    },
+    onError: (err: Error) => toast(err.message),
+  });
+
+  const assignMutation = useMutation({
+    mutationFn: ({ matId, matchId }: { matId: string; matchId: string }) =>
+      api.patch(`/mats/${matId}/assign`, { matchId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mats', competitionId] });
+      toast('Match assigned', 'success');
     },
     onError: (err: Error) => toast(err.message),
   });
@@ -520,11 +559,29 @@ function MatsTab({ competitionId, mats }: { competitionId: string; mats: Mat[] }
                 PIN: {mat.pin}
               </span>
             </div>
-            <div className="text-sm text-gray-500 mb-3">
+            <div className="mb-3">
               {mat.currentMatchId ? (
-                <span className="text-green-700 font-medium">Match assigned</span>
+                <div className="text-sm">
+                  <span className="text-green-700 font-medium">Match assigned</span>
+                  <span className="text-gray-400 text-xs ml-2">{mat.currentMatchId.slice(0, 8)}...</span>
+                </div>
               ) : (
-                'No match assigned'
+                <select
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white"
+                  defaultValue=""
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      assignMutation.mutate({ matId: mat.id, matchId: e.target.value });
+                    }
+                  }}
+                >
+                  <option value="">Assign a match...</option>
+                  {scheduledMatches.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.category.name} R{m.round}: {m.competitor1?.lastName ?? '?'} vs {m.competitor2?.lastName ?? '?'}
+                    </option>
+                  ))}
+                </select>
               )}
             </div>
             <div className="flex gap-2">
