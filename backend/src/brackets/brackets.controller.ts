@@ -11,11 +11,11 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { BracketsService } from './brackets.service';
 
 @Controller('competitions/:competitionId/brackets')
-@UseGuards(JwtAuthGuard)
 export class BracketsController {
   constructor(private bracketsService: BracketsService) {}
 
   @Post('generate')
+  @UseGuards(JwtAuthGuard)
   generate(
     @Req() req: express.Request,
     @Param('competitionId') competitionId: string,

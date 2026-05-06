@@ -488,12 +488,12 @@ function MatsTab({ competitionId, mats }: { competitionId: string; mats: Mat[] }
   const queryClient = useQueryClient();
   const [matCount, setMatCount] = useState(2);
 
-  const { data: brackets = [] } = useQuery<Category[]>({
-    queryKey: ['brackets', competitionId],
+  const { data: matchBrackets = [] } = useQuery<Category[]>({
+    queryKey: ['mat-matches', competitionId],
     queryFn: () => api.get(`/competitions/${competitionId}/brackets`),
   });
 
-  const scheduledMatches: AvailableMatch[] = brackets.flatMap((cat) =>
+  const scheduledMatches: AvailableMatch[] = matchBrackets.flatMap((cat) =>
     (cat.matches ?? [])
       .filter((m) => m.status === 'SCHEDULED' && m.competitor1 && m.competitor2)
       .map((m) => ({
