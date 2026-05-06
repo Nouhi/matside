@@ -1,0 +1,454 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
+import { useScoreboard, MatchState, OsaekomiState } from '@/hooks/useScoreboard';
+import { api } from '@/lib/api';
+
+function PinEntry({ onVerified }: { onVerified: (pin: string) => void }) {
+  const { matId } = useParams<{ matId: string }>();
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const res = await api.post<{ valid: boolean }>(`/mats/${matId}/verify-pin`, { pin });
+      if (res.valid) {
+        onVerified(pin);
+      } else {
+        setError('Invalid PIN');
+      }
+    } catch {
+      setError('Failed to verify PIN');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-gray-900 flex items-center justify-center">
+      <form onSubmit={handleSubmit} className="bg-white rounded-xl p-8 w-full max-w-sm">
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Mat Control Access</h2>
+        <p className="text-sm text-gray-500 mb-6">Enter the PIN to control this mat</p>
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          maxLength={6}
+          value={pin}
+          onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+          placeholder="Enter PIN"
+          className="w-full text-center text-3xl tracking-[0.5em] px-4 py-4 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+          autoFocus
+        />
+        {error && <p className="text-red-600 text-sm mt-2 text-center">{error}</p>}
+        <button
+          type="submit"
+          disabled={pin.length < 4 || loading}
+          className="w-full mt-6 py-4 bg-blue-600 text-white font-bold rounded-lg text-lg disabled:opacity-40"
+        >
+          {loading ? 'Verifying...' : 'Connect'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function formatTime(seconds: number): string {
+  const m = Math.floor(Math.abs(seconds) / 60);
+  const s = Math.abs(seconds) % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function MatchTimer({
+  matchState,
+  isRunning,
+  onToggle,
+}: {
+  matchState: MatchState;
+  isRunning: boolean;
+  onToggle: () => void;
+}) {
+  const [remaining, setRemaining] = useState(matchState.duration || 240);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (matchState.status !== 'ACTIVE') return;
+    setRemaining(matchState.duration || 240);
+  }, [matchState.duration, matchState.id]);
+
+  useEffect(() => {
+    if (isRunning) {
+      intervalRef.current = setInterval(() => {
+        setRemaining((prev) => {
+          if (prev <= 0) return 0;
+          return prev - 1;
+        });
+      }, 1000);
+    } else if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [isRunning]);
+
+  const expired = remaining <= 0;
+
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div
+        className={`text-5xl font-mono font-bold ${expired ? 'text-red-500' : 'text-white'}`}
+      >
+        {formatTime(remaining)}
+      </div>
+      {matchState.status === 'ACTIVE' && (
+        <button
+          onClick={onToggle}
+          className={`px-6 py-2 rounded font-bold text-sm ${
+            isRunning ? 'bg-yellow-500 text-black' : 'bg-green-500 text-white'
+          }`}
+        >
+          {isRunning ? 'PAUSE' : 'RESUME'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function OsaekomiTimer({ osaekomi }: { osaekomi: OsaekomiState }) {
+  const [elapsed, setElapsed] = useState(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (osaekomi.active && osaekomi.startTime) {
+      setElapsed(Math.floor((Date.now() - osaekomi.startTime) / 1000));
+      intervalRef.current = setInterval(() => {
+        setElapsed(Math.floor((Date.now() - osaekomi.startTime!) / 1000));
+      }, 100);
+    } else {
+      setElapsed(0);
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    }
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [osaekomi.active, osaekomi.startTime]);
+
+  if (!osaekomi.active) return null;
+
+  const flash10 = elapsed >= 10 && elapsed < 20;
+  const flash20 = elapsed >= 20;
+
+  return (
+    <div
+      className={`text-center py-3 rounded-lg font-bold text-2xl ${
+        flash20
+          ? 'bg-red-600 text-white animate-pulse'
+          : flash10
+            ? 'bg-amber-400 text-black animate-pulse'
+            : 'bg-amber-500 text-black'
+      }`}
+    >
+      OSAEKOMI {elapsed}s
+    </div>
+  );
+}
+
+function CompetitorColumn({
+  competitor,
+  scores,
+  side,
+  isActive,
+  onWazaAri,
+  onShido,
+}: {
+  competitor?: { id: string; firstName: string; lastName: string };
+  scores: { wazaAri: number; shido: number };
+  side: 'left' | 'right';
+  isActive: boolean;
+  onWazaAri: () => void;
+  onShido: () => void;
+}) {
+  const name = competitor ? `${competitor.lastName} ${competitor.firstName}` : 'TBD';
+
+  return (
+    <div className={`flex flex-col gap-4 ${side === 'right' ? 'items-end' : 'items-start'}`}>
+      <h2 className="text-2xl font-bold text-white truncate max-w-full">{name}</h2>
+      <div className="flex items-center gap-3">
+        <div className="flex gap-1">
+          {[0, 1].map((i) => (
+            <div
+              key={i}
+              className={`w-8 h-8 rounded-full border-2 border-white ${
+                i < scores.wazaAri ? 'bg-green-500' : 'bg-transparent'
+              }`}
+            />
+          ))}
+        </div>
+        <div className="flex gap-1">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className={`w-6 h-8 rounded-sm ${
+                i < scores.shido ? 'bg-yellow-400' : 'border-2 border-yellow-400/40'
+              }`}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="flex gap-3 w-full">
+        <button
+          onClick={onWazaAri}
+          disabled={!isActive}
+          className="flex-1 min-h-[80px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:opacity-30 text-white font-bold text-lg rounded-lg transition-colors"
+        >
+          +WAZA-ARI
+        </button>
+        <button
+          onClick={onShido}
+          disabled={!isActive}
+          className="flex-1 min-h-[80px] bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 disabled:opacity-30 text-black font-bold text-lg rounded-lg transition-colors"
+        >
+          +SHIDO
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ControlBoard({
+  matId,
+  pin,
+}: {
+  matId: string;
+  pin: string;
+}) {
+  const { matchState, role, isConnected, osaekomi, actions } = useScoreboard(matId, pin);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const [showEndModal, setShowEndModal] = useState(false);
+
+  const isActive = matchState?.status === 'ACTIVE';
+
+  const handleStartMatch = useCallback(() => {
+    if (matchState) {
+      actions.startMatch(matchState.id);
+      setTimerRunning(true);
+    }
+  }, [matchState, actions]);
+
+  const handleEndMatch = useCallback(
+    (winnerId: string, winMethod: string) => {
+      if (matchState) {
+        actions.endMatch(matchState.id, winnerId, winMethod);
+        setTimerRunning(false);
+        setShowEndModal(false);
+      }
+    },
+    [matchState, actions],
+  );
+
+  const handleOsaekomi = useCallback(
+    (competitorId: string) => {
+      if (!matchState) return;
+      if (osaekomi.active) {
+        actions.stopOsaekomi(matchState.id);
+      } else {
+        actions.startOsaekomi(matchState.id, competitorId);
+      }
+    },
+    [matchState, osaekomi.active, actions],
+  );
+
+  const handleGoldenScore = useCallback(() => {
+    if (matchState) {
+      actions.startGoldenScore(matchState.id);
+      setTimerRunning(true);
+    }
+  }, [matchState, actions]);
+
+  if (role === null) {
+    return (
+      <div className="fixed inset-0 bg-gray-900 flex items-center justify-center text-white text-xl">
+        Connecting...
+      </div>
+    );
+  }
+
+  if (role === 'viewer') {
+    return (
+      <div className="fixed inset-0 bg-gray-900 flex items-center justify-center text-white text-xl">
+        Access denied. Invalid PIN.
+      </div>
+    );
+  }
+
+  const scores = matchState?.scores || {
+    competitor1: { wazaAri: 0, shido: 0 },
+    competitor2: { wazaAri: 0, shido: 0 },
+  };
+
+  return (
+    <div className="fixed inset-0 bg-gray-900 flex flex-col overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
+        <span className="text-white font-bold">Mat {matId.slice(0, 6)}</span>
+        <span className="text-sm text-gray-300">
+          {matchState?.status || 'NO MATCH'}{' '}
+          {matchState?.goldenScore && (
+            <span className="ml-2 px-2 py-0.5 bg-yellow-500 text-black font-bold rounded text-xs">
+              GS
+            </span>
+          )}
+        </span>
+        <span className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+      </div>
+
+      {!matchState && (
+        <div className="flex-1 flex items-center justify-center text-gray-400 text-lg">
+          No match assigned to this mat
+        </div>
+      )}
+
+      {matchState && (
+        <div className="flex-1 flex flex-col p-4 gap-4">
+          <div className="flex-1 grid grid-cols-2 gap-6">
+            <CompetitorColumn
+              competitor={matchState.competitor1}
+              scores={scores.competitor1}
+              side="left"
+              isActive={isActive}
+              onWazaAri={() => matchState.competitor1 && actions.scoreWazaAri(matchState.competitor1.id)}
+              onShido={() => matchState.competitor1 && actions.scoreShido(matchState.competitor1.id)}
+            />
+            <CompetitorColumn
+              competitor={matchState.competitor2}
+              scores={scores.competitor2}
+              side="right"
+              isActive={isActive}
+              onWazaAri={() => matchState.competitor2 && actions.scoreWazaAri(matchState.competitor2.id)}
+              onShido={() => matchState.competitor2 && actions.scoreShido(matchState.competitor2.id)}
+            />
+          </div>
+
+          <div className="flex flex-col items-center gap-3">
+            <MatchTimer
+              matchState={matchState}
+              isRunning={timerRunning}
+              onToggle={() => setTimerRunning(!timerRunning)}
+            />
+            <OsaekomiTimer osaekomi={osaekomi} />
+          </div>
+
+          <div className="flex flex-col gap-3">
+            {isActive && (
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => matchState.competitor1 && handleOsaekomi(matchState.competitor1.id)}
+                  className={`min-h-[60px] font-bold text-base rounded-lg ${
+                    osaekomi.active && osaekomi.competitorId === matchState.competitor1?.id
+                      ? 'bg-amber-300 text-black'
+                      : 'bg-amber-600 text-white hover:bg-amber-700'
+                  }`}
+                >
+                  {osaekomi.active && osaekomi.competitorId === matchState.competitor1?.id
+                    ? 'STOP OSAEKOMI'
+                    : `OSAEKOMI ${matchState.competitor1?.lastName || ''}`}
+                </button>
+                <button
+                  onClick={() => matchState.competitor2 && handleOsaekomi(matchState.competitor2.id)}
+                  className={`min-h-[60px] font-bold text-base rounded-lg ${
+                    osaekomi.active && osaekomi.competitorId === matchState.competitor2?.id
+                      ? 'bg-amber-300 text-black'
+                      : 'bg-amber-600 text-white hover:bg-amber-700'
+                  }`}
+                >
+                  {osaekomi.active && osaekomi.competitorId === matchState.competitor2?.id
+                    ? 'STOP OSAEKOMI'
+                    : `OSAEKOMI ${matchState.competitor2?.lastName || ''}`}
+                </button>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              {matchState.status === 'SCHEDULED' && (
+                <button
+                  onClick={handleStartMatch}
+                  className="col-span-2 min-h-[60px] bg-green-600 hover:bg-green-700 active:bg-green-800 text-white font-bold text-xl rounded-lg"
+                >
+                  START MATCH
+                </button>
+              )}
+              {isActive && !matchState.goldenScore && (
+                <button
+                  onClick={handleGoldenScore}
+                  className="min-h-[60px] bg-yellow-600 hover:bg-yellow-700 text-white font-bold text-base rounded-lg"
+                >
+                  GOLDEN SCORE
+                </button>
+              )}
+              {isActive && (
+                <button
+                  onClick={() => setShowEndModal(true)}
+                  className={`min-h-[60px] bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-bold text-base rounded-lg ${
+                    !matchState.goldenScore ? '' : 'col-span-2'
+                  }`}
+                >
+                  END MATCH
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEndModal && matchState && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-xl p-6 w-full max-w-md">
+            <h3 className="text-xl font-bold text-white mb-4">End Match - Select Winner</h3>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() =>
+                  matchState.competitor1 &&
+                  handleEndMatch(matchState.competitor1.id, 'DECISION')
+                }
+                className="py-4 bg-blue-600 text-white font-bold rounded-lg text-lg"
+              >
+                {matchState.competitor1?.lastName || 'Competitor 1'} WINS
+              </button>
+              <button
+                onClick={() =>
+                  matchState.competitor2 &&
+                  handleEndMatch(matchState.competitor2.id, 'DECISION')
+                }
+                className="py-4 bg-blue-600 text-white font-bold rounded-lg text-lg"
+              >
+                {matchState.competitor2?.lastName || 'Competitor 2'} WINS
+              </button>
+              <button
+                onClick={() => setShowEndModal(false)}
+                className="py-3 bg-gray-600 text-white font-bold rounded-lg"
+              >
+                CANCEL
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function ControlPage() {
+  const { matId } = useParams<{ matId: string }>();
+  const [pin, setPin] = useState<string | null>(null);
+
+  if (!matId) return null;
+
+  if (!pin) {
+    return <PinEntry onVerified={setPin} />;
+  }
+
+  return <ControlBoard matId={matId} pin={pin} />;
+}

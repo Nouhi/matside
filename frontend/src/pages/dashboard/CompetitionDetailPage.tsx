@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
@@ -57,6 +57,13 @@ interface BracketSummary {
   matchCount: number;
 }
 
+interface Mat {
+  id: string;
+  number: number;
+  pin: string;
+  currentMatchId: string | null;
+}
+
 const STATUS_STYLES: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-700',
   REGISTRATION: 'bg-blue-100 text-blue-700',
@@ -83,7 +90,7 @@ export function CompetitionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<'competitors' | 'categories' | 'brackets'>('competitors');
+  const [activeTab, setActiveTab] = useState<'competitors' | 'categories' | 'brackets' | 'mats'>('competitors');
 
   const { data: competition, isLoading: loadingComp } = useQuery<Competition>({
     queryKey: ['competition', id],
@@ -104,6 +111,12 @@ export function CompetitionDetailPage() {
     queryKey: ['brackets', id],
     queryFn: () => api.get(`/competitions/${id}/brackets`),
     enabled: activeTab === 'brackets',
+  });
+
+  const { data: mats = [] } = useQuery<Mat[]>({
+    queryKey: ['mats', id],
+    queryFn: () => api.get(`/competitions/${id}/mats`),
+    enabled: activeTab === 'mats',
   });
 
   const statusMutation = useMutation({
@@ -264,7 +277,7 @@ export function CompetitionDetailPage() {
       <div className="bg-white rounded-lg border border-gray-200">
         <div className="border-b border-gray-200">
           <nav className="flex">
-            {(['competitors', 'categories', 'brackets'] as const).map((tab) => (
+            {(['competitors', 'categories', 'brackets', 'mats'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -277,6 +290,7 @@ export function CompetitionDetailPage() {
                 {tab === 'competitors' && `Competitors (${competitors.length})`}
                 {tab === 'categories' && `Categories (${categories.length})`}
                 {tab === 'brackets' && 'Brackets'}
+                {tab === 'mats' && `Mats (${mats.length})`}
               </button>
             ))}
           </nav>
@@ -299,6 +313,10 @@ export function CompetitionDetailPage() {
 
         {activeTab === 'brackets' && (
           <BracketView categories={brackets} />
+        )}
+
+        {activeTab === 'mats' && (
+          <MatsTab competitionId={id!} mats={mats} />
         )}
       </div>
     </div>
@@ -452,6 +470,82 @@ function CategoriesTab({ categories }: { categories: Category[] }) {
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function MatsTab({ competitionId, mats }: { competitionId: string; mats: Mat[] }) {
+  const queryClient = useQueryClient();
+  const [matCount, setMatCount] = useState(2);
+
+  const createMatsMutation = useMutation({
+    mutationFn: (count: number) => api.post(`/competitions/${competitionId}/mats`, { count }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mats', competitionId] });
+      toast('Mats created', 'success');
+    },
+    onError: (err: Error) => toast(err.message),
+  });
+
+  return (
+    <div className="p-6">
+      <div className="flex items-center gap-3 mb-6">
+        <input
+          type="number"
+          min={1}
+          max={20}
+          value={matCount}
+          onChange={(e) => setMatCount(parseInt(e.target.value) || 1)}
+          className="w-20 px-3 py-2 border border-gray-300 rounded-md text-sm"
+        />
+        <button
+          onClick={() => createMatsMutation.mutate(matCount)}
+          disabled={createMatsMutation.isPending}
+          className="px-4 py-2 bg-gray-900 text-white rounded-md text-sm font-medium hover:bg-gray-800 disabled:opacity-50"
+        >
+          {createMatsMutation.isPending ? 'Creating...' : 'Create Mats'}
+        </button>
+      </div>
+
+      {mats.length === 0 && (
+        <p className="text-gray-500 text-sm">No mats created yet</p>
+      )}
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        {mats.map((mat) => (
+          <div key={mat.id} className="border border-gray-200 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-gray-900">Mat {mat.number}</h3>
+              <span className="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-600">
+                PIN: {mat.pin}
+              </span>
+            </div>
+            <div className="text-sm text-gray-500 mb-3">
+              {mat.currentMatchId ? (
+                <span className="text-green-700 font-medium">Match assigned</span>
+              ) : (
+                'No match assigned'
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Link
+                to={`/mat/${mat.id}/display`}
+                target="_blank"
+                className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-xs font-medium hover:bg-gray-200 transition-colors"
+              >
+                Display View
+              </Link>
+              <Link
+                to={`/mat/${mat.id}/control`}
+                target="_blank"
+                className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded text-xs font-medium hover:bg-blue-200 transition-colors"
+              >
+                Control View
+              </Link>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

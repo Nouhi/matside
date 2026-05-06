@@ -5,6 +5,9 @@ import { DashboardLayout } from '@/components/DashboardLayout';
 import { CompetitionsPage } from '@/pages/dashboard/CompetitionsPage';
 import { CompetitionDetailPage } from '@/pages/dashboard/CompetitionDetailPage';
 import { RegisterPage } from '@/pages/RegisterPage';
+import { ControlPage } from '@/pages/scoreboard/ControlPage';
+import { DisplayPage } from '@/pages/scoreboard/DisplayPage';
+import { SpectatorPage } from '@/pages/scoreboard/SpectatorPage';
 import { ToastContainer } from '@/components/ToastContainer';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -38,6 +41,9 @@ function App() {
           <Route path="competitions/:id" element={<CompetitionDetailPage />} />
         </Route>
         <Route path="/competitions/:id/register" element={<RegisterPage />} />
+        <Route path="/mat/:matId/control" element={<ControlPage />} />
+        <Route path="/mat/:matId/display" element={<DisplayPage />} />
+        <Route path="/competition/:competitionId/live" element={<SpectatorPage />} />
       </Routes>
     </>
   );

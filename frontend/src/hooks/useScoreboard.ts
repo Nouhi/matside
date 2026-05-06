@@ -1,0 +1,155 @@
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { io, Socket } from 'socket.io-client';
+
+export interface MatchScores {
+  competitor1: { wazaAri: number; shido: number };
+  competitor2: { wazaAri: number; shido: number };
+}
+
+export interface MatchState {
+  id: string;
+  status: string;
+  competitor1?: { id: string; firstName: string; lastName: string };
+  competitor2?: { id: string; firstName: string; lastName: string };
+  winner?: { id: string; firstName: string; lastName: string };
+  winMethod?: string;
+  scores: MatchScores;
+  duration: number;
+  goldenScore: boolean;
+}
+
+export interface OsaekomiState {
+  active: boolean;
+  competitorId?: string;
+  startTime?: number;
+}
+
+export function useScoreboard(matId: string, pin?: string) {
+  const socketRef = useRef<Socket | null>(null);
+  const [matchState, setMatchState] = useState<MatchState | null>(null);
+  const [role, setRole] = useState<'controller' | 'viewer' | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const [osaekomi, setOsaekomi] = useState<OsaekomiState>({ active: false });
+
+  useEffect(() => {
+    const socket = io('/scoreboard', {
+      transports: ['websocket'],
+      autoConnect: true,
+    });
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      setIsConnected(true);
+      socket.emit('join-mat', { matId, pin });
+    });
+
+    socket.on('disconnect', () => {
+      setIsConnected(false);
+    });
+
+    socket.on('role', (data: { role: 'controller' | 'viewer' }) => {
+      setRole(data.role);
+    });
+
+    socket.on('match-state', (state: MatchState) => {
+      setMatchState(state);
+    });
+
+    socket.on('score-update', (data: { matchId: string; scores: MatchScores }) => {
+      setMatchState((prev) => {
+        if (!prev || prev.id !== data.matchId) return prev;
+        return { ...prev, scores: data.scores };
+      });
+    });
+
+    socket.on('match-started', (_data: { matchId: string }) => {
+      setMatchState((prev) => {
+        if (!prev) return prev;
+        return { ...prev, status: 'ACTIVE' };
+      });
+    });
+
+    socket.on('match-ended', (data: { matchId: string; winnerId: string; winMethod: string }) => {
+      setMatchState((prev) => {
+        if (!prev || prev.id !== data.matchId) return prev;
+        const winner =
+          prev.competitor1?.id === data.winnerId
+            ? prev.competitor1
+            : prev.competitor2?.id === data.winnerId
+              ? prev.competitor2
+              : undefined;
+        return { ...prev, status: 'COMPLETED', winner, winMethod: data.winMethod };
+      });
+      setOsaekomi({ active: false });
+    });
+
+    socket.on('osaekomi-started', (data: { matchId: string; competitorId: string; startTime: number }) => {
+      setOsaekomi({ active: true, competitorId: data.competitorId, startTime: data.startTime });
+    });
+
+    socket.on('osaekomi-stopped', () => {
+      setOsaekomi({ active: false });
+    });
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [matId, pin]);
+
+  const scoreWazaAri = useCallback(
+    (competitorId: string) => {
+      socketRef.current?.emit('score-event', {
+        matchId: matchState?.id,
+        event: { type: 'WAZA_ARI', competitorId, timestamp: Date.now() },
+      });
+    },
+    [matchState?.id],
+  );
+
+  const scoreShido = useCallback(
+    (competitorId: string) => {
+      socketRef.current?.emit('score-event', {
+        matchId: matchState?.id,
+        event: { type: 'SHIDO', competitorId, timestamp: Date.now() },
+      });
+    },
+    [matchState?.id],
+  );
+
+  const startMatch = useCallback((matchId: string) => {
+    socketRef.current?.emit('start-match', { matchId });
+  }, []);
+
+  const endMatch = useCallback((matchId: string, winnerId: string, winMethod: string) => {
+    socketRef.current?.emit('end-match', { matchId, winnerId, winMethod });
+  }, []);
+
+  const startOsaekomi = useCallback((matchId: string, competitorId: string) => {
+    socketRef.current?.emit('start-osaekomi', { matchId, competitorId });
+  }, []);
+
+  const stopOsaekomi = useCallback((matchId: string) => {
+    socketRef.current?.emit('stop-osaekomi', { matchId });
+  }, []);
+
+  const startGoldenScore = useCallback((matchId: string) => {
+    socketRef.current?.emit('start-golden-score', { matchId });
+  }, []);
+
+  return {
+    matchState,
+    role,
+    isConnected,
+    osaekomi,
+    actions: {
+      scoreWazaAri,
+      scoreShido,
+      startMatch,
+      endMatch,
+      startOsaekomi,
+      stopOsaekomi,
+      startGoldenScore,
+    },
+  };
+}

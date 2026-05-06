@@ -16,6 +16,11 @@ export default defineConfig({
       '/competitions': 'http://localhost:3000',
       '/categories': 'http://localhost:3000',
       '/competitors': 'http://localhost:3000',
+      '/mats': 'http://localhost:3000',
+      '/scoreboard': {
+        target: 'http://localhost:3000',
+        ws: true,
+      },
     },
   },
 })
