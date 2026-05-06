@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { useScoreboard, MatchState, OsaekomiState } from '@/hooks/useScoreboard';
+import { useScoreboard } from '@/hooks/useScoreboard';
+import type { MatchState, OsaekomiState } from '@/hooks/useScoreboard';
 import { api } from '@/lib/api';
 
 function PinEntry({ onVerified }: { onVerified: (pin: string) => void }) {

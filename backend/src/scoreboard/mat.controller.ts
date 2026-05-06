@@ -40,7 +40,7 @@ export class MatController {
     @Body() dto: CreateMatsDto,
     @Req() req: express.Request,
   ) {
-    return this.matService.createMats(competitionId, dto.count, (req as any).user.id);
+    return this.matService.createMats(competitionId, dto.count, (req.user as { sub: string }).sub);
   }
 
   @Get('competitions/:competitionId/mats')
@@ -55,7 +55,7 @@ export class MatController {
     @Body() dto: AssignMatchDto,
     @Req() req: express.Request,
   ) {
-    return this.matService.assignMatchToMat(matId, dto.matchId, (req as any).user.id);
+    return this.matService.assignMatchToMat(matId, dto.matchId, (req.user as { sub: string }).sub);
   }
 
   @Post('mats/:matId/verify-pin')

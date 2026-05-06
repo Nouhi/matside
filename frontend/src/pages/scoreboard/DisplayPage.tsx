@@ -1,5 +1,6 @@
 import { useParams } from 'react-router-dom';
-import { useScoreboard, OsaekomiState } from '@/hooks/useScoreboard';
+import { useScoreboard } from '@/hooks/useScoreboard';
+import type { OsaekomiState } from '@/hooks/useScoreboard';
 import { useState, useEffect, useRef } from 'react';
 
 function formatTime(seconds: number): string {
