@@ -10,7 +10,7 @@ import { Server, Socket } from 'socket.io';
 import { ScoreboardService, ScoreEvent } from './scoreboard.service';
 import { MatService } from './mat.service';
 
-@WebSocketGateway({ namespace: '/scoreboard' })
+@WebSocketGateway({ namespace: '/scoreboard', cors: { origin: '*' } })
 export class ScoreboardGateway implements OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;

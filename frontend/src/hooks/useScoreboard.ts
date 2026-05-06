@@ -32,8 +32,8 @@ export function useScoreboard(matId: string, pin?: string) {
   const [osaekomi, setOsaekomi] = useState<OsaekomiState>({ active: false });
 
   useEffect(() => {
-    const socket = io('/scoreboard', {
-      transports: ['websocket'],
+    const wsUrl = import.meta.env.DEV ? 'http://localhost:3000/scoreboard' : '/scoreboard';
+    const socket = io(wsUrl, {
       autoConnect: true,
     });
     socketRef.current = socket;
