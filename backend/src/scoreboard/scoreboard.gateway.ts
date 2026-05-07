@@ -10,12 +10,23 @@ import { Server, Socket } from 'socket.io';
 import { ScoreboardService, ScoreEvent } from './scoreboard.service';
 import { MatService } from './mat.service';
 
+interface OsaekomiTracker {
+  competitorId: string;
+  startedAt: number;
+  room: string;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+const OSAEKOMI_WAZA_ARI_MS = 10_000;
+const OSAEKOMI_IPPON_MS = 20_000;
+
 @WebSocketGateway({ namespace: '/scoreboard', cors: { origin: '*' } })
 export class ScoreboardGateway implements OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
   private controllers = new Map<string, Set<string>>();
+  private osaekomi = new Map<string, OsaekomiTracker>();
 
   constructor(
     private scoreboardService: ScoreboardService,
@@ -121,12 +132,26 @@ export class ScoreboardGateway implements OnGatewayDisconnect {
     if (!this.isController(client)) return;
 
     const room = this.getClientRoom(client);
-    const startTime = Date.now();
+    const startedAt = Date.now();
+
+    const existing = this.osaekomi.get(data.matchId);
+    if (existing) clearTimeout(existing.timer);
+
+    const timer = setTimeout(() => {
+      void this.resolveOsaekomi(data.matchId, true);
+    }, OSAEKOMI_IPPON_MS);
+
+    this.osaekomi.set(data.matchId, {
+      competitorId: data.competitorId,
+      startedAt,
+      room,
+      timer,
+    });
 
     this.server.to(room).emit('osaekomi-started', {
       matchId: data.matchId,
       competitorId: data.competitorId,
-      startTime,
+      startTime: startedAt,
     });
   }
 
@@ -136,9 +161,62 @@ export class ScoreboardGateway implements OnGatewayDisconnect {
     @MessageBody() data: { matchId: string },
   ) {
     if (!this.isController(client)) return;
+    await this.resolveOsaekomi(data.matchId, false);
+  }
 
-    const room = this.getClientRoom(client);
-    this.server.to(room).emit('osaekomi-stopped', { matchId: data.matchId });
+  private async resolveOsaekomi(matchId: string, autoTerminated: boolean) {
+    const state = this.osaekomi.get(matchId);
+    if (!state) return;
+    clearTimeout(state.timer);
+    this.osaekomi.delete(matchId);
+
+    const elapsedMs = autoTerminated
+      ? OSAEKOMI_IPPON_MS
+      : Date.now() - state.startedAt;
+
+    this.server.to(state.room).emit('osaekomi-stopped', {
+      matchId,
+      elapsedMs,
+      autoTerminated,
+    });
+
+    if (elapsedMs >= OSAEKOMI_IPPON_MS) {
+      const result = await this.scoreboardService.applyScoreEvent(matchId, {
+        type: 'IPPON',
+        competitorId: state.competitorId,
+        timestamp: Date.now(),
+      });
+      this.server.to(state.room).emit('score-update', {
+        matchId,
+        scores: result.match.scores,
+        event: { type: 'OSAEKOMI_IPPON', competitorId: state.competitorId },
+      });
+      if (result.terminated) {
+        this.server.to(state.room).emit('match-ended', {
+          matchId,
+          winnerId: result.winnerId,
+          winMethod: result.winMethod,
+        });
+      }
+    } else if (elapsedMs >= OSAEKOMI_WAZA_ARI_MS) {
+      const result = await this.scoreboardService.applyScoreEvent(matchId, {
+        type: 'WAZA_ARI',
+        competitorId: state.competitorId,
+        timestamp: Date.now(),
+      });
+      this.server.to(state.room).emit('score-update', {
+        matchId,
+        scores: result.match.scores,
+        event: { type: 'OSAEKOMI_WAZA_ARI', competitorId: state.competitorId },
+      });
+      if (result.terminated) {
+        this.server.to(state.room).emit('match-ended', {
+          matchId,
+          winnerId: result.winnerId,
+          winMethod: result.winMethod,
+        });
+      }
+    }
   }
 
   @SubscribeMessage('start-golden-score')

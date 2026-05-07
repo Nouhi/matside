@@ -1,9 +1,15 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 
+export interface CompetitorScore {
+  wazaAri: number;
+  yuko: number;
+  shido: number;
+}
+
 export interface MatchScores {
-  competitor1: { wazaAri: number; shido: number };
-  competitor2: { wazaAri: number; shido: number };
+  competitor1: CompetitorScore;
+  competitor2: CompetitorScore;
 }
 
 export interface MatchState {
@@ -107,11 +113,31 @@ export function useScoreboard(matId: string, pin?: string) {
     [matchState?.id],
   );
 
+  const scoreYuko = useCallback(
+    (competitorId: string) => {
+      socketRef.current?.emit('score-event', {
+        matchId: matchState?.id,
+        event: { type: 'YUKO', competitorId, timestamp: Date.now() },
+      });
+    },
+    [matchState?.id],
+  );
+
   const scoreShido = useCallback(
     (competitorId: string) => {
       socketRef.current?.emit('score-event', {
         matchId: matchState?.id,
         event: { type: 'SHIDO', competitorId, timestamp: Date.now() },
+      });
+    },
+    [matchState?.id],
+  );
+
+  const scoreIppon = useCallback(
+    (competitorId: string) => {
+      socketRef.current?.emit('score-event', {
+        matchId: matchState?.id,
+        event: { type: 'IPPON', competitorId, timestamp: Date.now() },
       });
     },
     [matchState?.id],
@@ -144,7 +170,9 @@ export function useScoreboard(matId: string, pin?: string) {
     osaekomi,
     actions: {
       scoreWazaAri,
+      scoreYuko,
       scoreShido,
+      scoreIppon,
       startMatch,
       endMatch,
       startOsaekomi,
