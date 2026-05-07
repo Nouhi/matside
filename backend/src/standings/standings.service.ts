@@ -6,6 +6,7 @@ import {
   rankRoundRobin,
 } from './round-robin.util';
 import { computeEliminationStandings } from './elimination.util';
+import { computePoolsStandings } from './pools.util';
 import { MatchScores, StandingMatch } from './standings.types';
 
 export interface CompetitorRef {
@@ -29,7 +30,7 @@ export interface StandingEntry {
 export interface CategoryStandings {
   categoryId: string;
   categoryName: string;
-  bracketType: 'ROUND_ROBIN' | 'SINGLE_REPECHAGE' | 'DOUBLE_REPECHAGE';
+  bracketType: 'ROUND_ROBIN' | 'POOLS' | 'SINGLE_REPECHAGE' | 'DOUBLE_REPECHAGE';
   status: 'IN_PROGRESS' | 'COMPLETE' | 'PENDING_PLAYOFF';
   standings: StandingEntry[];
 }
@@ -78,7 +79,29 @@ export class StandingsService {
         round: m.round,
         poolPosition: m.poolPosition,
         scores: (m.scores as unknown as MatchScores) ?? null,
+        phase: m.phase ?? null,
+        poolGroup: m.poolGroup ?? null,
       }));
+
+      if (category.bracketType === 'POOLS') {
+        const result_ = computePoolsStandings(standingMatches);
+        result.push({
+          categoryId: category.id,
+          categoryName: category.name,
+          bracketType: 'POOLS',
+          status: result_.status,
+          standings: result_.standings.map((s) => ({
+            rank: s.rank,
+            competitor: competitorRefs.get(s.competitorId) ?? {
+              id: s.competitorId,
+              firstName: '',
+              lastName: '',
+              club: '',
+            },
+          })),
+        });
+        continue;
+      }
 
       if (category.bracketType === 'ROUND_ROBIN') {
         const ranking = rankRoundRobin(competitorIds, standingMatches);
