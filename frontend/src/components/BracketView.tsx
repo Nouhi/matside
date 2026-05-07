@@ -678,9 +678,66 @@ function EliminationBracket({ category }: { category: Category }) {
         )}
       </div>
 
-      {showRepechage && (
+      {showRepechage && category.bracketType === 'DOUBLE_REPECHAGE' ? (
+        <RepechageBronzeFights category={category} />
+      ) : showRepechage ? (
         <RepechageSection totalRounds={totalRounds} />
-      )}
+      ) : null}
+    </div>
+  );
+}
+
+function RepechageBronzeFights({ category }: { category: Category }) {
+  const matches = category.matches ?? [];
+  const repTop = matches.find((m) => m.phase === 'REPECHAGE' && m.poolGroup === 'TOP');
+  const repBot = matches.find((m) => m.phase === 'REPECHAGE' && m.poolGroup === 'BOTTOM');
+  const bronzeTop = matches.find((m) => m.phase === 'KNOCKOUT_BRONZE' && m.poolGroup === 'TOP');
+  const bronzeBot = matches.find((m) => m.phase === 'KNOCKOUT_BRONZE' && m.poolGroup === 'BOTTOM');
+
+  return (
+    <div className="mt-8 border-t border-gray-200 pt-6">
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-sm font-bold uppercase tracking-widest text-amber-700">Repechage + Bronze Medal Fights</span>
+        <div className="h-px flex-1 bg-amber-200" />
+      </div>
+
+      <div className="grid gap-6" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        <RepechagePath label="Top half" repechage={repTop ?? null} bronze={bronzeTop ?? null} />
+        <RepechagePath label="Bottom half" repechage={repBot ?? null} bronze={bronzeBot ?? null} />
+      </div>
+    </div>
+  );
+}
+
+function RepechagePath({
+  label,
+  repechage,
+  bronze,
+}: {
+  label: string;
+  repechage: Match | null;
+  bronze: Match | null;
+}) {
+  return (
+    <div className="border border-amber-200 rounded-lg overflow-hidden">
+      <div className="bg-amber-50 px-4 py-2 border-b border-amber-200">
+        <span className="text-xs font-bold uppercase tracking-widest text-amber-700">{label}</span>
+      </div>
+      <div className="p-4 flex items-center gap-3">
+        <div className="flex-1">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Repechage</div>
+          <div style={{ width: CARD_W }}>
+            <MatchCard match={repechage} />
+          </div>
+        </div>
+        <div className="text-amber-400 text-xl">→</div>
+        <div className="flex-1">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-amber-600 mb-1">Bronze</div>
+          <div style={{ width: CARD_W }}>
+            <MatchCard match={bronze} />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

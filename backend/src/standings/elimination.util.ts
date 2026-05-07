@@ -39,7 +39,11 @@ export function computeEliminationStandings(
   const totalRounds = totalRoundsFor(competitorCount);
   if (totalRounds === 0) return { status: 'COMPLETE', standings: [], totalRounds };
 
-  const finalMatch = getMatch(matches, totalRounds, 1);
+  // Filter to main bracket matches only (phase=null/undefined). Repechage and
+  // bronze matches are handled separately below.
+  const mainMatches = matches.filter((m) => m.phase == null);
+
+  const finalMatch = getMatch(mainMatches, totalRounds, 1);
   const finalCompleted = !!finalMatch && finalMatch.status === 'COMPLETED' && !!finalMatch.winnerId;
 
   const standings: EliminationStanding[] = [];
@@ -50,8 +54,29 @@ export function computeEliminationStandings(
     if (silver) standings.push({ rank: 2, competitorId: silver });
   }
 
+  // Bronze derivation:
+  //   - DOUBLE_REPECHAGE: 2 explicit bronze matches (phase=KNOCKOUT_BRONZE,
+  //     poolGroup=TOP/BOTTOM). Winners = 2 distinct bronze medalists.
+  //   - Legacy / SINGLE_REPECHAGE: no bronze matches in DB, fall back to
+  //     joint bronze for SF losers.
+  const bronzeMatches = matches.filter((m) => m.phase === 'KNOCKOUT_BRONZE');
+
+  if (bronzeMatches.length > 0) {
+    let allBronzeDone = true;
+    for (const bronze of bronzeMatches) {
+      if (bronze.status === 'COMPLETED' && bronze.winnerId) {
+        standings.push({ rank: 3, competitorId: bronze.winnerId });
+      } else {
+        allBronzeDone = false;
+      }
+    }
+    const status = finalCompleted && allBronzeDone ? 'COMPLETE' : 'IN_PROGRESS';
+    return { status, standings, totalRounds };
+  }
+
+  // Legacy fallback: joint bronze from SF losers (no bronze fight)
   if (totalRounds >= 2) {
-    const semis = getRoundMatches(matches, totalRounds - 1).filter(
+    const semis = getRoundMatches(mainMatches, totalRounds - 1).filter(
       (m) => m.status === 'COMPLETED',
     );
     for (const semi of semis) {

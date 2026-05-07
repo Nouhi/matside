@@ -104,6 +104,7 @@ enum MatchPhase {
   KNOCKOUT_SF
   KNOCKOUT_FINAL
   KNOCKOUT_BRONZE
+  REPECHAGE
 }
 
 // ─── Competitor ───
