@@ -1,73 +1,78 @@
-# React + TypeScript + Vite
+# matside frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Vite + React 19 + TypeScript + Tailwind v4 + shadcn/ui. TanStack Query for server state. React Router for navigation. Socket.IO client for the live scoreboard.
 
-Currently, two official plugins are available:
+For the full repo overview and setup, see the [top-level README](../README.md).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Quick start
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev   # http://localhost:5173
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The dev server proxies API and WebSocket traffic to `localhost:3000`. Start the [backend](../backend/) first.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Layout
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
 ```
+src/
+├── pages/
+│   ├── LoginPage.tsx
+│   ├── RegisterPage.tsx
+│   ├── dashboard/                 # organiser views
+│   │   ├── CompetitionsPage.tsx
+│   │   └── CompetitionDetailPage.tsx  # tabs: competitors, categories, brackets, mats, standings
+│   └── scoreboard/                # live scoreboard surfaces
+│       ├── DisplayPage.tsx        # TV / projector — IJF blue/white, big timer, IPPON animation
+│       ├── ControlPage.tsx        # table-official tablet — PIN gate, scoring buttons
+│       └── SpectatorPage.tsx      # phone — live mat cards
+├── components/
+│   ├── BracketView.tsx
+│   ├── StandingsTab.tsx
+│   └── ...
+├── hooks/
+│   ├── useAuth.ts
+│   └── useScoreboard.ts           # Socket.IO connection, score events
+├── lib/
+│   ├── api.ts                     # fetch wrapper, JWT injection
+│   └── toast.ts
+└── App.tsx                        # routes
+```
+
+## Tests
+
+```bash
+npx vitest run                  # all tests
+npx vitest                      # watch mode
+```
+
+Components use React Testing Library. The api / auth helpers and LoginPage are covered today.
+
+## Path alias
+
+`@/*` resolves to `frontend/src/*` (configured in `vite.config.ts` and `tsconfig.app.json`). Use it for all internal imports:
+
+```tsx
+import { api } from '@/lib/api';
+import { StandingsTab } from '@/components/StandingsTab';
+```
+
+## Styling
+
+Tailwind v4 via `@tailwindcss/vite`. Custom keyframes for the IPPON animation + score-cell pulse live in `src/index.css`. The `prefers-reduced-motion` override is honoured for both. Component primitives come from shadcn/ui (browse `components/ui/` if a primitive is missing — generate via `npx shadcn add <name>`).
+
+## Common tasks
+
+**Add a route** — edit `App.tsx` and add the route inside the `<Routes>` block.
+
+**Add an API call** — use the `api` helper:
+
+```ts
+import { api } from '@/lib/api';
+const data = await api.get<Foo>('/competitions/123/foo');
+```
+
+**Add a TanStack Query** — see `CompetitionDetailPage.tsx` for the pattern (`useQuery` keyed on `[entity, id]`, `useMutation` with `invalidateQueries` in `onSuccess`).
+
+**Subscribe to the scoreboard** — `useScoreboard(matId, pin?)` (see `hooks/useScoreboard.ts`). Without a PIN you get `viewer` role; with a valid PIN you get `controller` and can emit score events.
