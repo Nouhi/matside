@@ -1,1 +1,71 @@
 @import "tailwindcss";
+
+@keyframes ippon-pop {
+  0% {
+    transform: scale(0.2) rotate(-8deg);
+    opacity: 0;
+  }
+  15% {
+    transform: scale(1.25) rotate(2deg);
+    opacity: 1;
+  }
+  25% {
+    transform: scale(0.95) rotate(-1deg);
+  }
+  35% {
+    transform: scale(1.05) rotate(0.5deg);
+  }
+  45%, 80% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.85) rotate(0deg);
+    opacity: 0;
+  }
+}
+
+@keyframes ippon-fade-bg {
+  0% { background-color: rgba(0, 0, 0, 0); }
+  10%, 85% { background-color: rgba(0, 0, 0, 0.55); }
+  100% { background-color: rgba(0, 0, 0, 0); }
+}
+
+.ippon-overlay-bg {
+  animation: ippon-fade-bg 4s ease-in-out forwards;
+}
+
+.ippon-text-anim {
+  animation: ippon-pop 4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes ippon-fade-only {
+  0% { opacity: 0; }
+  10%, 80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ippon-overlay-bg {
+    animation: ippon-fade-bg 4s ease-in-out forwards;
+  }
+  .ippon-text-anim {
+    animation: ippon-fade-only 4s ease-in-out forwards;
+  }
+}
+
+@keyframes score-cell-pulse {
+  0% { background-color: rgba(250, 204, 21, 0); }
+  20% { background-color: rgba(250, 204, 21, 0.45); }
+  100% { background-color: rgba(250, 204, 21, 0); }
+}
+
+.score-cell-pulse {
+  animation: score-cell-pulse 600ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .score-cell-pulse {
+    animation: none;
+  }
+}
