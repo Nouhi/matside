@@ -33,6 +33,16 @@ export class MatService {
   async getMats(competitionId: string) {
     return this.prisma.mat.findMany({
       where: { competitionId },
+      include: {
+        categories: {
+          select: {
+            id: true,
+            name: true,
+            _count: { select: { competitors: true } },
+          },
+          orderBy: [{ gender: 'asc' }, { ageGroup: 'asc' }, { minWeight: 'asc' }],
+        },
+      },
       orderBy: { number: 'asc' },
     });
   }

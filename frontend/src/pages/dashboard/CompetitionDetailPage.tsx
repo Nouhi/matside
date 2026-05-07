@@ -47,6 +47,8 @@ interface Category {
   bracketType: string;
   competitors: Competitor[];
   matches: Match[];
+  matId?: string | null;
+  mat?: { id: string; number: number } | null;
   _count?: { competitors: number };
 }
 
@@ -58,11 +60,18 @@ interface BracketSummary {
   matchCount: number;
 }
 
+interface MatCategoryRef {
+  id: string;
+  name: string;
+  _count: { competitors: number };
+}
+
 interface Mat {
   id: string;
   number: number;
   pin: string;
   currentMatchId: string | null;
+  categories?: MatCategoryRef[];
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -117,7 +126,7 @@ export function CompetitionDetailPage() {
   const { data: mats = [] } = useQuery<Mat[]>({
     queryKey: ['mats', id],
     queryFn: () => api.get(`/competitions/${id}/mats`),
-    enabled: activeTab === 'mats',
+    enabled: activeTab === 'mats' || activeTab === 'categories',
   });
 
   const statusMutation = useMutation({
@@ -310,7 +319,7 @@ export function CompetitionDetailPage() {
         )}
 
         {activeTab === 'categories' && (
-          <CategoriesTab categories={categories} />
+          <CategoriesTab competitionId={id!} categories={categories} mats={mats} />
         )}
 
         {activeTab === 'brackets' && (
@@ -448,7 +457,28 @@ function CompetitorsTab({
   );
 }
 
-function CategoriesTab({ categories }: { categories: Category[] }) {
+function CategoriesTab({
+  competitionId,
+  categories,
+  mats,
+}: {
+  competitionId: string;
+  categories: Category[];
+  mats: Mat[];
+}) {
+  const queryClient = useQueryClient();
+
+  const overrideMatMutation = useMutation({
+    mutationFn: ({ categoryId, matId }: { categoryId: string; matId: string | null }) =>
+      api.patch(`/categories/${categoryId}/mat`, { matId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['categories', competitionId] });
+      queryClient.invalidateQueries({ queryKey: ['mats', competitionId] });
+      toast('Mat assignment updated', 'success');
+    },
+    onError: (err: Error) => toast(err.message),
+  });
+
   if (categories.length === 0) {
     return (
       <div className="p-6 text-center text-gray-500">
@@ -460,20 +490,39 @@ function CategoriesTab({ categories }: { categories: Category[] }) {
   return (
     <div className="divide-y divide-gray-100">
       {categories.map((cat) => (
-        <div key={cat.id} className="px-6 py-4 flex items-center justify-between">
-          <div>
+        <div key={cat.id} className="px-6 py-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex-1 min-w-0">
             <p className="font-medium text-gray-900">{cat.name}</p>
             <p className="text-sm text-gray-500 mt-0.5">
               {BRACKET_LABELS[cat.bracketType] || cat.bracketType} · {cat._count?.competitors ?? cat.competitors?.length ?? 0} competitors
             </p>
           </div>
-          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
-            cat.bracketType === 'ROUND_ROBIN' ? 'bg-purple-100 text-purple-700' :
-            cat.bracketType === 'SINGLE_REPECHAGE' ? 'bg-orange-100 text-orange-700' :
-            'bg-red-100 text-red-700'
-          }`}>
-            {BRACKET_LABELS[cat.bracketType] || cat.bracketType}
-          </span>
+          <div className="flex items-center gap-3 shrink-0">
+            <select
+              className="px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white"
+              value={cat.matId ?? ''}
+              onChange={(e) => {
+                const value = e.target.value;
+                overrideMatMutation.mutate({
+                  categoryId: cat.id,
+                  matId: value === '' ? null : value,
+                });
+              }}
+              disabled={mats.length === 0 || overrideMatMutation.isPending}
+            >
+              <option value="">Unassigned</option>
+              {mats.map((m) => (
+                <option key={m.id} value={m.id}>Mat {m.number}</option>
+              ))}
+            </select>
+            <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+              cat.bracketType === 'ROUND_ROBIN' ? 'bg-purple-100 text-purple-700' :
+              cat.bracketType === 'SINGLE_REPECHAGE' ? 'bg-orange-100 text-orange-700' :
+              'bg-red-100 text-red-700'
+            }`}>
+              {BRACKET_LABELS[cat.bracketType] || cat.bracketType}
+            </span>
+          </div>
         </div>
       ))}
     </div>
@@ -485,7 +534,7 @@ interface AvailableMatch {
   round: number;
   poolPosition: number;
   status: string;
-  category: { name: string };
+  category: { id: string; name: string };
   competitor1?: { firstName: string; lastName: string };
   competitor2?: { firstName: string; lastName: string };
 }
@@ -507,11 +556,17 @@ function MatsTab({ competitionId, mats }: { competitionId: string; mats: Mat[] }
         round: m.round,
         poolPosition: m.poolPosition,
         status: m.status,
-        category: { name: cat.name },
+        category: { id: cat.id, name: cat.name },
         competitor1: m.competitor1 ?? undefined,
         competitor2: m.competitor2 ?? undefined,
       }))
   );
+
+  // Build a lookup of category -> mat assignment so we can filter the dropdown
+  const categoryToMat = new Map<string, string | null>();
+  for (const cat of matchBrackets) {
+    categoryToMat.set(cat.id, cat.matId ?? null);
+  }
 
   const createMatsMutation = useMutation({
     mutationFn: (count: number) => api.post(`/competitions/${competitionId}/mats`, { count }),
@@ -532,9 +587,21 @@ function MatsTab({ competitionId, mats }: { competitionId: string; mats: Mat[] }
     onError: (err: Error) => toast(err.message),
   });
 
+  const autoAssignMutation = useMutation({
+    mutationFn: () => api.post(`/competitions/${competitionId}/categories/assign-mats`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mats', competitionId] });
+      queryClient.invalidateQueries({ queryKey: ['categories', competitionId] });
+      queryClient.invalidateQueries({ queryKey: ['brackets', competitionId] });
+      queryClient.invalidateQueries({ queryKey: ['mat-matches', competitionId] });
+      toast('Categories balanced across mats', 'success');
+    },
+    onError: (err: Error) => toast(err.message),
+  });
+
   return (
     <div className="p-6">
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex flex-wrap items-center gap-3 mb-6">
         <input
           type="number"
           min={1}
@@ -550,6 +617,14 @@ function MatsTab({ competitionId, mats }: { competitionId: string; mats: Mat[] }
         >
           {createMatsMutation.isPending ? 'Creating...' : 'Create Mats'}
         </button>
+        <button
+          onClick={() => autoAssignMutation.mutate()}
+          disabled={autoAssignMutation.isPending || mats.length === 0}
+          className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+          title="Distribute categories across mats by competitor count"
+        >
+          {autoAssignMutation.isPending ? 'Balancing...' : 'Auto-assign Categories'}
+        </button>
       </div>
 
       {mats.length === 0 && (
@@ -557,57 +632,91 @@ function MatsTab({ competitionId, mats }: { competitionId: string; mats: Mat[] }
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
-        {mats.map((mat) => (
-          <div key={mat.id} className="border border-gray-200 rounded-lg p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-bold text-gray-900">Mat {mat.number}</h3>
-              <span className="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-600">
-                PIN: {mat.pin}
-              </span>
-            </div>
-            <div className="mb-3">
-              {mat.currentMatchId ? (
-                <div className="text-sm">
-                  <span className="text-green-700 font-medium">Match assigned</span>
-                  <span className="text-gray-400 text-xs ml-2">{mat.currentMatchId.slice(0, 8)}...</span>
-                </div>
-              ) : (
-                <select
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white"
-                  defaultValue=""
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      assignMutation.mutate({ matId: mat.id, matchId: e.target.value });
-                    }
-                  }}
-                >
-                  <option value="">Assign a match...</option>
-                  {scheduledMatches.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.category.name} R{m.round}: {m.competitor1?.lastName ?? '?'} vs {m.competitor2?.lastName ?? '?'}
-                    </option>
+        {mats.map((mat) => {
+          const matCategoryIds = new Set((mat.categories ?? []).map((c) => c.id));
+          const eligibleMatches = scheduledMatches.filter((m) => {
+            // Show matches in categories assigned to this mat. If the category
+            // hasn't been assigned to any mat yet, fall back to showing it.
+            const assignedMat = categoryToMat.get(m.category.id);
+            if (assignedMat === null || assignedMat === undefined) return true;
+            return matCategoryIds.has(m.category.id);
+          });
+          const totalCompetitors = (mat.categories ?? []).reduce(
+            (sum, c) => sum + (c._count?.competitors ?? 0),
+            0,
+          );
+
+          return (
+            <div key={mat.id} className="border border-gray-200 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold text-gray-900">Mat {mat.number}</h3>
+                <span className="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-600">
+                  PIN: {mat.pin}
+                </span>
+              </div>
+
+              {(mat.categories?.length ?? 0) > 0 && (
+                <div className="mb-3 flex flex-wrap gap-1">
+                  {(mat.categories ?? []).map((c) => (
+                    <span
+                      key={c.id}
+                      className="text-[11px] font-medium bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded-full"
+                    >
+                      {c.name} · {c._count?.competitors ?? 0}
+                    </span>
                   ))}
-                </select>
+                  <span className="text-[11px] text-gray-500 px-2 py-0.5">
+                    Σ {totalCompetitors} competitors
+                  </span>
+                </div>
               )}
+
+              <div className="mb-3">
+                {mat.currentMatchId ? (
+                  <div className="text-sm">
+                    <span className="text-green-700 font-medium">Match assigned</span>
+                    <span className="text-gray-400 text-xs ml-2">{mat.currentMatchId.slice(0, 8)}...</span>
+                  </div>
+                ) : (
+                  <select
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white"
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        assignMutation.mutate({ matId: mat.id, matchId: e.target.value });
+                      }
+                    }}
+                  >
+                    <option value="">
+                      {eligibleMatches.length === 0 ? 'No matches for this mat' : 'Assign a match...'}
+                    </option>
+                    {eligibleMatches.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.category.name} R{m.round}: {m.competitor1?.lastName ?? '?'} vs {m.competitor2?.lastName ?? '?'}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Link
+                  to={`/mat/${mat.id}/display`}
+                  target="_blank"
+                  className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-xs font-medium hover:bg-gray-200 transition-colors"
+                >
+                  Display View
+                </Link>
+                <Link
+                  to={`/mat/${mat.id}/control`}
+                  target="_blank"
+                  className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded text-xs font-medium hover:bg-blue-200 transition-colors"
+                >
+                  Control View
+                </Link>
+              </div>
             </div>
-            <div className="flex gap-2">
-              <Link
-                to={`/mat/${mat.id}/display`}
-                target="_blank"
-                className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-xs font-medium hover:bg-gray-200 transition-colors"
-              >
-                Display View
-              </Link>
-              <Link
-                to={`/mat/${mat.id}/control`}
-                target="_blank"
-                className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded text-xs font-medium hover:bg-blue-200 transition-colors"
-              >
-                Control View
-              </Link>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

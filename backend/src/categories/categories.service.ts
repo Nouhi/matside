@@ -156,8 +156,103 @@ export class CategoriesService {
       where: { competitionId },
       include: {
         _count: { select: { competitors: true } },
+        mat: { select: { id: true, number: true } },
       },
       orderBy: [{ gender: 'asc' }, { ageGroup: 'asc' }, { minWeight: 'asc' }],
+    });
+  }
+
+  async assignCategoriesToMats(competitionId: string, organizerId: string) {
+    const competition = await this.prisma.competition.findUnique({
+      where: { id: competitionId },
+    });
+    if (!competition) throw new NotFoundException('Competition not found');
+    if (competition.organizerId !== organizerId) throw new ForbiddenException();
+
+    const mats = await this.prisma.mat.findMany({
+      where: { competitionId },
+      orderBy: { number: 'asc' },
+    });
+    if (mats.length === 0) {
+      throw new BadRequestException('No mats configured for this competition');
+    }
+
+    const categories = await this.prisma.category.findMany({
+      where: { competitionId },
+      include: { _count: { select: { competitors: true } } },
+    });
+    if (categories.length === 0) {
+      throw new BadRequestException('No categories to assign');
+    }
+
+    // Sort categories by competitor count desc — heavier categories placed first
+    // so the load-balance algorithm distributes the bigger categories evenly.
+    const sorted = [...categories].sort(
+      (a, b) => b._count.competitors - a._count.competitors,
+    );
+
+    const matLoad = new Map<string, number>();
+    for (const mat of mats) matLoad.set(mat.id, 0);
+
+    return this.prisma.$transaction(async (tx) => {
+      const assignments: { categoryId: string; matId: string }[] = [];
+      for (const cat of sorted) {
+        // Pick the mat with the lowest current competitor load
+        let pickedId = mats[0].id;
+        let pickedLoad = matLoad.get(pickedId)!;
+        for (const mat of mats) {
+          const load = matLoad.get(mat.id)!;
+          if (load < pickedLoad) {
+            pickedId = mat.id;
+            pickedLoad = load;
+          }
+        }
+        matLoad.set(pickedId, pickedLoad + cat._count.competitors);
+        assignments.push({ categoryId: cat.id, matId: pickedId });
+      }
+
+      for (const a of assignments) {
+        await tx.category.update({
+          where: { id: a.categoryId },
+          data: { matId: a.matId },
+        });
+      }
+
+      return mats.map((mat) => ({
+        matId: mat.id,
+        matNumber: mat.number,
+        competitors: matLoad.get(mat.id) ?? 0,
+        categories: assignments
+          .filter((a) => a.matId === mat.id)
+          .map((a) => sorted.find((c) => c.id === a.categoryId)?.name ?? ''),
+      }));
+    });
+  }
+
+  async assignCategoryToMat(
+    categoryId: string,
+    matId: string | null,
+    organizerId: string,
+  ) {
+    const category = await this.prisma.category.findUnique({
+      where: { id: categoryId },
+      include: { competition: true },
+    });
+    if (!category) throw new NotFoundException('Category not found');
+    if (category.competition.organizerId !== organizerId) throw new ForbiddenException();
+
+    if (matId) {
+      const mat = await this.prisma.mat.findUnique({ where: { id: matId } });
+      if (!mat) throw new NotFoundException('Mat not found');
+      if (mat.competitionId !== category.competitionId) {
+        throw new BadRequestException('Mat is not in the same competition');
+      }
+    }
+
+    return this.prisma.category.update({
+      where: { id: categoryId },
+      data: { matId },
+      include: { mat: { select: { id: true, number: true } } },
     });
   }
 
