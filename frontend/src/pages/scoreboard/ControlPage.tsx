@@ -187,12 +187,16 @@ function ShidoCell({ count, isBlue }: { count: number; isBlue: boolean }) {
     <div className={`flex flex-col items-center justify-center px-3 border-l ${borderColor} min-w-[64px]`}>
       <div className={`${labelColor} font-bold text-xs uppercase tracking-wider`}>S</div>
       <div className="flex gap-1 mt-2">
-        {[0, 1, 2].map((i) => (
-          <div
-            key={i}
-            className={`w-3 h-6 rounded-sm border-2 ${i < count ? filled : `bg-transparent ${emptyBorder}`}`}
-          />
-        ))}
+        {count >= 3 ? (
+          <div className="w-12 h-6 rounded-sm border-2 bg-red-600 border-red-700 shadow-[0_0_10px_rgba(220,38,38,0.7)]" />
+        ) : (
+          [0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className={`w-3 h-6 rounded-sm border-2 ${i < count ? filled : `bg-transparent ${emptyBorder}`}`}
+            />
+          ))
+        )}
       </div>
     </div>
   );
@@ -285,6 +289,12 @@ function ControlBoard({
 
   const isActive = matchState?.status === 'ACTIVE';
   const buttonsEnabled = isActive && isConnected;
+
+  useEffect(() => {
+    if (matchState && matchState.status !== 'ACTIVE') {
+      setTimerRunning(false);
+    }
+  }, [matchState?.id, matchState?.status]);
 
   const handleStartMatch = useCallback(() => {
     if (matchState) {

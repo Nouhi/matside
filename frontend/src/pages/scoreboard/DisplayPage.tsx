@@ -58,10 +58,17 @@ function DisconnectBanner({ visible }: { visible: boolean }) {
 function WinBanner({ winMethod }: { winMethod?: string }) {
   if (!winMethod) return null;
 
+  const isHansoku = winMethod === 'HANSOKU_MAKE';
+  const borderColor = isHansoku ? 'border-red-500' : 'border-yellow-400';
+  const textColor = isHansoku ? 'text-red-500' : 'text-yellow-400';
+  const glow = isHansoku
+    ? 'drop-shadow-[0_0_20px_rgba(239,68,68,0.6)]'
+    : 'drop-shadow-[0_0_20px_rgba(250,204,21,0.55)]';
+
   return (
-    <div className="bg-black border-t-2 border-yellow-400 flex items-center justify-center py-3 animate-pulse">
+    <div className={`bg-black border-t-2 ${borderColor} flex items-center justify-center py-3 animate-pulse`}>
       <span
-        className="font-black text-yellow-400 uppercase drop-shadow-[0_0_20px_rgba(250,204,21,0.55)]"
+        className={`font-black ${textColor} uppercase ${glow}`}
         style={{ fontSize: 'clamp(36px, 6vw, 88px)', lineHeight: 1, letterSpacing: '0.32em' }}
       >
         {winMethod.replace(/_/g, ' ')}
@@ -194,17 +201,28 @@ function ShidoCell({
         S
       </div>
       <div aria-hidden="true" className="flex gap-2.5 mt-3">
-        {[0, 1, 2].map((i) => (
+        {count >= 3 ? (
           <div
-            key={i}
-            className={`border-2 ${i < count ? filled : `bg-transparent ${emptyBorder}`}`}
+            className="bg-red-600 border-2 border-red-700 shadow-[0_0_16px_rgba(220,38,38,0.75)]"
             style={{
-              width: 'clamp(18px, 1.8vw, 30px)',
+              width: 'clamp(64px, 6.6vw, 110px)',
               height: 'clamp(36px, 4vw, 60px)',
-              borderRadius: '3px',
+              borderRadius: '4px',
             }}
           />
-        ))}
+        ) : (
+          [0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className={`border-2 ${i < count ? filled : `bg-transparent ${emptyBorder}`}`}
+              style={{
+                width: 'clamp(18px, 1.8vw, 30px)',
+                height: 'clamp(36px, 4vw, 60px)',
+                borderRadius: '3px',
+              }}
+            />
+          ))
+        )}
       </div>
     </div>
   );
