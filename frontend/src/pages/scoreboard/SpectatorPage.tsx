@@ -55,12 +55,16 @@ function MiniShido({ count, isBlue }: { count: number; isBlue: boolean }) {
     <div className="flex flex-col items-center justify-center min-w-[42px]">
       <div className={`${labelColor} text-[9px] font-bold uppercase tracking-wider leading-none`}>S</div>
       <div className="flex gap-0.5 mt-1">
-        {[0, 1, 2].map((i) => (
-          <div
-            key={i}
-            className={`w-2 h-4 rounded-sm border ${i < count ? filled : `bg-transparent ${emptyBorder}`}`}
-          />
-        ))}
+        {count >= 3 ? (
+          <div className="w-7 h-4 rounded-sm border bg-red-600 border-red-700" />
+        ) : (
+          [0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className={`w-2 h-4 rounded-sm border ${i < count ? filled : `bg-transparent ${emptyBorder}`}`}
+            />
+          ))
+        )}
       </div>
     </div>
   );
