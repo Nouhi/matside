@@ -15,6 +15,8 @@ interface Match {
   competitor2?: Competitor | null;
   winner?: Competitor | null;
   winMethod?: string | null;
+  phase?: string | null;
+  poolGroup?: string | null;
 }
 
 interface Category {
@@ -32,7 +34,8 @@ interface Category {
 
 const BRACKET_LABELS: Record<string, string> = {
   ROUND_ROBIN: 'Round Robin',
-  SINGLE_REPECHAGE: 'Single Repechage',
+  POOLS: 'Pool Play',
+  SINGLE_REPECHAGE: 'Single Elimination',
   DOUBLE_REPECHAGE: 'Double Repechage',
 };
 
@@ -128,6 +131,8 @@ export function BracketView({ categories }: { categories: Category[] }) {
           </div>
           {activeCategory.bracketType === 'ROUND_ROBIN' ? (
             <RoundRobinGrid category={activeCategory} />
+          ) : activeCategory.bracketType === 'POOLS' ? (
+            <PoolsBracketView category={activeCategory} />
           ) : (
             <EliminationBracket category={activeCategory} />
           )}
@@ -298,6 +303,227 @@ function RoundRobinGrid({ category }: { category: Category }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function PoolsBracketView({ category }: { category: Category }) {
+  const competitors = category.competitors ?? [];
+  const matches = category.matches ?? [];
+
+  const poolMatches = matches.filter((m) => m.phase === 'POOL');
+  const sfMatches = matches.filter((m) => m.phase === 'KNOCKOUT_SF').sort((a, b) => a.poolPosition - b.poolPosition);
+  const finalMatch = matches.find((m) => m.phase === 'KNOCKOUT_FINAL');
+  const bronzeMatch = matches.find((m) => m.phase === 'KNOCKOUT_BRONZE');
+
+  const poolGroups = Array.from(new Set(poolMatches.map((m) => m.poolGroup ?? '').filter(Boolean))).sort();
+
+  const competitorsByPool = useMemo(() => {
+    const map = new Map<string, Competitor[]>();
+    for (const group of poolGroups) map.set(group, []);
+    const seen = new Set<string>();
+    for (const m of poolMatches) {
+      const group = m.poolGroup;
+      if (!group) continue;
+      const list = map.get(group) ?? [];
+      for (const c of [m.competitor1, m.competitor2]) {
+        if (c && !seen.has(`${group}-${c.id}`)) {
+          list.push(c);
+          seen.add(`${group}-${c.id}`);
+        }
+      }
+      map.set(group, list);
+    }
+    return map;
+  }, [poolMatches, poolGroups]);
+
+  const knockoutFormat: 'TWO_TEAM' | 'FOUR_TEAM' = sfMatches.length > 0 ? 'FOUR_TEAM' : 'TWO_TEAM';
+
+  return (
+    <div className="space-y-6">
+      {/* Pool stage */}
+      <div className="grid gap-6" style={{ gridTemplateColumns: poolGroups.length > 1 ? `repeat(${poolGroups.length}, minmax(0, 1fr))` : '1fr' }}>
+        {poolGroups.map((group) => (
+          <PoolBlock
+            key={group}
+            group={group}
+            competitors={competitorsByPool.get(group) ?? []}
+            matches={poolMatches.filter((m) => m.poolGroup === group)}
+          />
+        ))}
+      </div>
+
+      {/* Knockout stage */}
+      <div className="border-t border-gray-200 pt-6">
+        <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-4">Knockout</h4>
+        <div className="flex flex-wrap items-start gap-6">
+          {knockoutFormat === 'FOUR_TEAM' && (
+            <KnockoutColumn label="Semi-finals">
+              {sfMatches.map((m) => (
+                <KnockoutCard key={m.id} match={m} title={`SF ${m.poolPosition}`} />
+              ))}
+            </KnockoutColumn>
+          )}
+          <KnockoutColumn label="Final">
+            <KnockoutCard match={finalMatch ?? null} title="Final" gold />
+          </KnockoutColumn>
+          <KnockoutColumn label="Bronze">
+            <KnockoutCard match={bronzeMatch ?? null} title="Bronze" bronze />
+          </KnockoutColumn>
+        </div>
+        {(competitors.length > 0 && poolMatches.length > 0 && finalMatch == null) && (
+          <p className="mt-3 text-xs text-gray-500 italic">
+            Knockout matches will be created automatically when both pools finish.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PoolBlock({
+  group,
+  competitors,
+  matches,
+}: {
+  group: string;
+  competitors: Competitor[];
+  matches: Match[];
+}) {
+  const resultMap = useMemo(() => {
+    const map = new Map<string, { winner: boolean; method?: string | null }>();
+    for (const match of matches) {
+      if (match.status !== 'COMPLETED' || !match.winner) continue;
+      const c1Id = match.competitor1?.id;
+      const c2Id = match.competitor2?.id;
+      if (!c1Id || !c2Id) continue;
+      const winnerId = match.winner.id;
+      map.set(`${c1Id}-${c2Id}`, { winner: winnerId === c1Id, method: match.winMethod });
+      map.set(`${c2Id}-${c1Id}`, { winner: winnerId === c2Id, method: match.winMethod });
+    }
+    return map;
+  }, [matches]);
+
+  return (
+    <div className="border border-gray-200 rounded-lg overflow-hidden">
+      <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex items-baseline gap-2">
+        <span className="text-xs font-bold uppercase tracking-widest text-gray-500">Pool</span>
+        <span className="text-2xl font-black text-gray-900 leading-none">{group}</span>
+        <span className="text-sm text-gray-500 ml-auto">{competitors.length} competitors</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr>
+              <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500 border-b border-gray-200 min-w-[180px]">
+                Competitor
+              </th>
+              {competitors.map((_, i) => (
+                <th
+                  key={i}
+                  className="bg-gray-50 px-2 py-2 text-center text-xs font-bold tabular-nums text-gray-500 border-b border-gray-200 min-w-[44px]"
+                >
+                  {i + 1}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {competitors.map((row, ri) => (
+              <tr key={row.id}>
+                <td className="sticky left-0 z-10 bg-white px-3 py-2 border-b border-gray-100 whitespace-nowrap">
+                  <span className="text-gray-400 text-xs font-bold mr-2 tabular-nums">{ri + 1}</span>
+                  <span className="font-bold text-base uppercase tracking-wide text-gray-900">
+                    {row.lastName} {row.firstName[0]}.
+                  </span>
+                </td>
+                {competitors.map((col, ci) => {
+                  if (ri === ci) {
+                    return (
+                      <td key={col.id} className="bg-gray-100 border-b border-gray-100" style={{ minWidth: 44, height: 40 }} />
+                    );
+                  }
+                  const result = resultMap.get(`${row.id}-${col.id}`);
+                  return (
+                    <td key={col.id} className="border-b border-gray-100 text-center" style={{ minWidth: 44, height: 40 }}>
+                      {result ? (
+                        <span className={`text-base font-black ${result.winner ? 'text-green-700' : 'text-red-600'}`}>
+                          {result.winner ? 'W' : 'L'}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300">·</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function KnockoutColumn({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{label}</div>
+      {children}
+    </div>
+  );
+}
+
+function KnockoutCard({
+  match,
+  title,
+  gold,
+  bronze,
+}: {
+  match: Match | null;
+  title: string;
+  gold?: boolean;
+  bronze?: boolean;
+}) {
+  const c1Name = match?.competitor1 ? `${match.competitor1.lastName.toUpperCase()} ${match.competitor1.firstName[0]}.` : null;
+  const c2Name = match?.competitor2 ? `${match.competitor2.lastName.toUpperCase()} ${match.competitor2.firstName[0]}.` : null;
+  const winner = match?.winner;
+  const isCompleted = match?.status === 'COMPLETED';
+  const isC1Winner = !!(winner && match?.competitor1 && winner.id === match.competitor1.id);
+  const isC2Winner = !!(winner && match?.competitor2 && winner.id === match.competitor2.id);
+
+  const borderClass = gold
+    ? 'border-amber-400 bg-amber-50/30'
+    : bronze
+      ? 'border-amber-700/50 bg-orange-50/30'
+      : 'border-gray-300 bg-white';
+
+  return (
+    <div className="flex flex-col" style={{ width: CARD_W }}>
+      <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">{title}</div>
+      <div className={`rounded border ${borderClass} text-xs overflow-hidden`}>
+        <div className={`flex items-center justify-between px-2 py-1.5 ${isC1Winner ? 'bg-green-50' : ''}`} style={{ minHeight: 28 }}>
+          <span className={`truncate ${!c1Name ? 'text-gray-300 italic' : isC1Winner ? 'font-bold text-gray-900' : isCompleted ? 'text-gray-400' : 'text-gray-700'}`}>
+            {c1Name ?? 'TBD'}
+          </span>
+          {isCompleted && isC1Winner && match?.winMethod && (
+            <span className="ml-1 px-1 py-px rounded bg-green-100 text-green-700 text-[9px] font-bold leading-tight shrink-0">
+              {WIN_METHOD_SHORT[match.winMethod] ?? match.winMethod}
+            </span>
+          )}
+        </div>
+        <div className="border-t border-gray-200" />
+        <div className={`flex items-center justify-between px-2 py-1.5 ${isC2Winner ? 'bg-green-50' : ''}`} style={{ minHeight: 28 }}>
+          <span className={`truncate ${!c2Name ? 'text-gray-300 italic' : isC2Winner ? 'font-bold text-gray-900' : isCompleted ? 'text-gray-400' : 'text-gray-700'}`}>
+            {c2Name ?? 'TBD'}
+          </span>
+          {isCompleted && isC2Winner && match?.winMethod && (
+            <span className="ml-1 px-1 py-px rounded bg-green-100 text-green-700 text-[9px] font-bold leading-tight shrink-0">
+              {WIN_METHOD_SHORT[match.winMethod] ?? match.winMethod}
+            </span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

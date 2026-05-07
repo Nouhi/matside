@@ -12,6 +12,8 @@ export interface StandingMatch {
   round: number;
   poolPosition: number;
   scores: MatchScores | null;
+  phase?: string | null;
+  poolGroup?: string | null;
 }
 
 export interface CompetitorStats {
