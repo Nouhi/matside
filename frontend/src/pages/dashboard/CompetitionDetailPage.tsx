@@ -5,6 +5,7 @@ import { toast } from '@/lib/toast';
 import { MapPin, Calendar, Users, Copy, Check, Layers, Swords } from 'lucide-react';
 import { useState } from 'react';
 import { BracketView } from '@/components/BracketView';
+import { StandingsTab } from '@/components/StandingsTab';
 
 interface Competition {
   id: string;
@@ -90,7 +91,7 @@ export function CompetitionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<'competitors' | 'categories' | 'brackets' | 'mats'>('competitors');
+  const [activeTab, setActiveTab] = useState<'competitors' | 'categories' | 'brackets' | 'mats' | 'standings'>('competitors');
 
   const { data: competition, isLoading: loadingComp } = useQuery<Competition>({
     queryKey: ['competition', id],
@@ -277,7 +278,7 @@ export function CompetitionDetailPage() {
       <div className="bg-white rounded-lg border border-gray-200">
         <div className="border-b border-gray-200">
           <nav className="flex">
-            {(['competitors', 'categories', 'brackets', 'mats'] as const).map((tab) => (
+            {(['competitors', 'categories', 'brackets', 'mats', 'standings'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -291,6 +292,7 @@ export function CompetitionDetailPage() {
                 {tab === 'categories' && `Categories (${categories.length})`}
                 {tab === 'brackets' && 'Brackets'}
                 {tab === 'mats' && `Mats (${mats.length})`}
+                {tab === 'standings' && 'Standings'}
               </button>
             ))}
           </nav>
@@ -317,6 +319,10 @@ export function CompetitionDetailPage() {
 
         {activeTab === 'mats' && (
           <MatsTab competitionId={id!} mats={mats} />
+        )}
+
+        {activeTab === 'standings' && (
+          <StandingsTab competitionId={id!} />
         )}
       </div>
     </div>
