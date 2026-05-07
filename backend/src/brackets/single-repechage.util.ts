@@ -5,34 +5,95 @@ export interface BracketMatch {
   competitor2Index: number | null;
 }
 
-export function generateSingleRepechageMatches(competitorCount: number): BracketMatch[] {
-  const bracketSize = nextPowerOfTwo(competitorCount);
-  const firstRoundMatches = bracketSize / 2;
-  const byes = bracketSize - competitorCount;
-  const matches: BracketMatch[] = [];
+interface SlotState {
+  competitor1Index: number | null;
+  competitor2Index: number | null;
+}
 
+export function generateSingleRepechageMatches(competitorCount: number): BracketMatch[] {
+  if (competitorCount < 2) return [];
+
+  const bracketSize = nextPowerOfTwo(competitorCount);
+  const totalRounds = Math.log2(bracketSize);
   const seeds = generateSeedings(bracketSize);
 
-  let poolPosition = 0;
-  for (let i = 0; i < firstRoundMatches; i++) {
-    const seed1 = seeds[i * 2];
-    const seed2 = seeds[i * 2 + 1];
+  const slots = new Map<string, SlotState>();
+  const slotKey = (round: number, position: number) => `${round}:${position}`;
 
+  function getOrCreateSlot(round: number, position: number): SlotState {
+    const key = slotKey(round, position);
+    let slot = slots.get(key);
+    if (!slot) {
+      slot = { competitor1Index: null, competitor2Index: null };
+      slots.set(key, slot);
+    }
+    return slot;
+  }
+
+  function placeAdvancer(
+    fromRound: number,
+    fromPosition: number,
+    competitorIndex: number,
+  ) {
+    const nextRound = fromRound + 1;
+    const nextPosition = Math.ceil(fromPosition / 2);
+    const slot = getOrCreateSlot(nextRound, nextPosition);
+    if (fromPosition % 2 === 1) {
+      slot.competitor1Index = competitorIndex;
+    } else {
+      slot.competitor2Index = competitorIndex;
+    }
+  }
+
+  const r1MatchCount = bracketSize / 2;
+  for (let position = 1; position <= r1MatchCount; position++) {
+    const seed1 = seeds[(position - 1) * 2];
+    const seed2 = seeds[(position - 1) * 2 + 1];
     const c1 = seed1 < competitorCount ? seed1 : null;
     const c2 = seed2 < competitorCount ? seed2 : null;
 
-    if (c1 === null || c2 === null) continue;
-
-    poolPosition++;
-    matches.push({
-      round: 1,
-      poolPosition,
-      competitor1Index: c1,
-      competitor2Index: c2,
-    });
+    if (c1 !== null && c2 !== null) {
+      const slot = getOrCreateSlot(1, position);
+      slot.competitor1Index = c1;
+      slot.competitor2Index = c2;
+    } else if (c1 !== null) {
+      placeAdvancer(1, position, c1);
+    } else if (c2 !== null) {
+      placeAdvancer(1, position, c2);
+    }
   }
 
+  for (let round = 2; round <= totalRounds; round++) {
+    const matchesInRound = bracketSize / Math.pow(2, round);
+    for (let position = 1; position <= matchesInRound; position++) {
+      getOrCreateSlot(round, position);
+    }
+  }
+
+  const matches: BracketMatch[] = [];
+  for (const [key, slot] of slots) {
+    const [round, position] = key.split(':').map(Number);
+    matches.push({
+      round,
+      poolPosition: position,
+      competitor1Index: slot.competitor1Index,
+      competitor2Index: slot.competitor2Index,
+    });
+  }
+  matches.sort((a, b) => a.round - b.round || a.poolPosition - b.poolPosition);
+
   return matches;
+}
+
+export function getNextSlot(
+  round: number,
+  position: number,
+): { round: number; position: number; isCompetitor1: boolean } {
+  return {
+    round: round + 1,
+    position: Math.ceil(position / 2),
+    isCompetitor1: position % 2 === 1,
+  };
 }
 
 function nextPowerOfTwo(n: number): number {

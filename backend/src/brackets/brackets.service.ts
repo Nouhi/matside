@@ -44,10 +44,11 @@ export class BracketsService {
         let bracketType: BracketType;
         if (competitorCount <= 4) {
           bracketType = BracketType.ROUND_ROBIN;
-        } else if (competitorCount <= 7) {
-          bracketType = BracketType.SINGLE_REPECHAGE;
         } else {
-          bracketType = BracketType.DOUBLE_REPECHAGE;
+          // ENG-A3 (TODOS.md): we tag all 5+ competitor categories as SINGLE_REPECHAGE
+          // until proper DOUBLE_REPECHAGE bracket-section + bronze fights are implemented.
+          // Today, single-repechage.util generates the same shape for both.
+          bracketType = BracketType.SINGLE_REPECHAGE;
         }
 
         await tx.category.update({
