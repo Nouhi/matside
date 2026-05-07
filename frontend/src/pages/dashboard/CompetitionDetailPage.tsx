@@ -121,6 +121,7 @@ export function CompetitionDetailPage() {
     queryKey: ['brackets', id],
     queryFn: () => api.get(`/competitions/${id}/brackets`),
     enabled: activeTab === 'brackets',
+    refetchInterval: activeTab === 'brackets' ? 5000 : false,
   });
 
   const { data: mats = [] } = useQuery<Mat[]>({
@@ -546,6 +547,7 @@ function MatsTab({ competitionId, mats }: { competitionId: string; mats: Mat[] }
   const { data: matchBrackets = [] } = useQuery<Category[]>({
     queryKey: ['mat-matches', competitionId],
     queryFn: () => api.get(`/competitions/${competitionId}/brackets`),
+    refetchInterval: 5000,
   });
 
   const scheduledMatches: AvailableMatch[] = matchBrackets.flatMap((cat) =>

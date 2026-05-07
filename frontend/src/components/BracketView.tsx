@@ -233,16 +233,16 @@ function RoundRobinGrid({ category }: { category: Category }) {
 
   return (
     <div className="overflow-x-auto">
-      <table className="border-collapse text-sm">
+      <table className="border-collapse w-full text-base">
         <thead>
           <tr>
-            <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left text-xs font-medium text-gray-500 border border-gray-200 min-w-[160px]">
+            <th className="sticky left-0 z-10 bg-gray-50 px-5 py-4 text-left text-sm font-bold uppercase tracking-wider text-gray-500 border border-gray-200 min-w-[280px]">
               Competitor
             </th>
             {competitors.map((_, i) => (
               <th
                 key={i}
-                className="bg-gray-50 px-2 py-2 text-center text-xs font-medium text-gray-500 border border-gray-200 min-w-[48px]"
+                className="bg-gray-50 px-3 py-4 text-center text-sm font-bold tabular-nums text-gray-500 border border-gray-200 min-w-[80px]"
               >
                 {i + 1}
               </th>
@@ -252,29 +252,44 @@ function RoundRobinGrid({ category }: { category: Category }) {
         <tbody>
           {competitors.map((row, ri) => (
             <tr key={row.id}>
-              <td className="sticky left-0 z-10 bg-white px-3 py-2 font-medium text-gray-900 border border-gray-200 whitespace-nowrap">
-                <span className="text-gray-400 mr-2 text-xs">{ri + 1}</span>
-                {row.lastName.toUpperCase()} {row.firstName[0]}.
+              <td className="sticky left-0 z-10 bg-white px-5 py-4 border border-gray-200 whitespace-nowrap">
+                <div className="flex items-center gap-3">
+                  <span className="text-gray-400 text-sm font-bold tabular-nums w-6">{ri + 1}</span>
+                  <span className="font-bold text-lg uppercase tracking-wide text-gray-900">
+                    {row.lastName} {row.firstName[0]}.
+                  </span>
+                </div>
+                {row.club && (
+                  <div className="text-xs text-gray-500 mt-0.5 ml-9">{row.club}</div>
+                )}
               </td>
               {competitors.map((col, ci) => {
                 if (ri === ci) {
                   return (
-                    <td key={col.id} className="bg-gray-100 border border-gray-200 w-12 h-10" />
+                    <td
+                      key={col.id}
+                      className="bg-gray-100 border border-gray-200"
+                      style={{ minWidth: 80, height: 72 }}
+                    />
                   );
                 }
                 const result = resultMap.get(`${row.id}-${col.id}`);
                 return (
-                  <td key={col.id} className="border border-gray-200 text-center w-12 h-10">
+                  <td
+                    key={col.id}
+                    className="border border-gray-200 text-center"
+                    style={{ minWidth: 80, height: 72 }}
+                  >
                     {result ? (
                       <span
-                        className={`text-xs font-bold ${
+                        className={`text-2xl font-black ${
                           result.winner ? 'text-green-700' : 'text-red-600'
                         }`}
                       >
                         {result.winner ? 'W' : 'L'}
                       </span>
                     ) : (
-                      <span className="text-gray-300">&mdash;</span>
+                      <span className="text-gray-300 text-2xl">·</span>
                     )}
                   </td>
                 );

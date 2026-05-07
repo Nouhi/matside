@@ -47,10 +47,10 @@ const BRACKET_LABELS: Record<string, string> = {
 };
 
 function rankBadge(rank: number) {
-  if (rank === 1) return <Trophy size={14} className="text-amber-500" />;
-  if (rank === 2) return <Medal size={14} className="text-gray-400" />;
-  if (rank === 3) return <Medal size={14} className="text-amber-700" />;
-  return <span className="w-3.5 inline-block text-center text-xs font-medium text-gray-400">{rank}</span>;
+  if (rank === 1) return <Trophy size={20} className="text-amber-500" />;
+  if (rank === 2) return <Medal size={20} className="text-gray-400" />;
+  if (rank === 3) return <Medal size={20} className="text-amber-700" />;
+  return <span className="inline-block text-center text-base font-semibold text-gray-500 tabular-nums">{rank}</span>;
 }
 
 function rankRowClass(rank: number) {
@@ -132,41 +132,50 @@ function CategoryStandingsBlock({ category }: { category: CategoryStandings }) {
 
 function RoundRobinTable({ entries }: { entries: StandingEntry[] }) {
   return (
-    <div className="overflow-x-auto -mx-2">
-      <table className="w-full text-sm">
+    <div className="overflow-x-auto">
+      <table className="w-full text-base table-fixed">
+        <colgroup>
+          <col className="w-16" />
+          <col />
+          <col className="w-20" />
+          <col className="w-20" />
+          <col className="w-24" />
+          <col className="w-24" />
+          <col className="w-24" />
+        </colgroup>
         <thead>
-          <tr className="text-left text-xs uppercase text-gray-400">
-            <th className="px-2 py-1.5 font-medium w-10">#</th>
-            <th className="px-2 py-1.5 font-medium">Competitor</th>
-            <th className="px-2 py-1.5 font-medium text-center">W</th>
-            <th className="px-2 py-1.5 font-medium text-center">L</th>
-            <th className="px-2 py-1.5 font-medium text-center">Ippon</th>
-            <th className="px-2 py-1.5 font-medium text-center">Waza</th>
-            <th className="px-2 py-1.5 font-medium text-center">Shido</th>
+          <tr className="text-left text-sm uppercase text-gray-500 border-b border-gray-200">
+            <th className="px-4 py-3 font-bold tracking-wider">#</th>
+            <th className="px-4 py-3 font-bold tracking-wider">Competitor</th>
+            <th className="px-4 py-3 font-bold tracking-wider text-center">W</th>
+            <th className="px-4 py-3 font-bold tracking-wider text-center">L</th>
+            <th className="px-4 py-3 font-bold tracking-wider text-center">Ippon</th>
+            <th className="px-4 py-3 font-bold tracking-wider text-center">Waza</th>
+            <th className="px-4 py-3 font-bold tracking-wider text-center">Shido</th>
           </tr>
         </thead>
         <tbody>
           {entries.map((e) => (
-            <tr key={e.competitor.id} className={`border-t border-gray-100 ${rankRowClass(e.rank)}`}>
-              <td className="px-2 py-2 align-middle">
-                <div className="flex items-center gap-1">{rankBadge(e.rank)}</div>
+            <tr key={e.competitor.id} className={`border-b border-gray-100 ${rankRowClass(e.rank)}`}>
+              <td className="px-4 py-4 align-middle">
+                <div className="flex items-center justify-center">{rankBadge(e.rank)}</div>
               </td>
-              <td className="px-2 py-2">
-                <div className="font-medium text-gray-900">
-                  {e.competitor.lastName.toUpperCase()} {e.competitor.firstName}
+              <td className="px-4 py-4">
+                <div className="font-bold text-gray-900 text-lg uppercase tracking-wide">
+                  {e.competitor.lastName} {e.competitor.firstName}
                 </div>
                 {e.competitor.club && (
-                  <div className="text-xs text-gray-500">{e.competitor.club}</div>
+                  <div className="text-sm text-gray-500 mt-0.5">{e.competitor.club}</div>
                 )}
                 {e.tiedWith && e.tiedWith.length > 0 && (
-                  <div className="text-xs text-red-600 mt-0.5">Tied — playoff required</div>
+                  <div className="text-xs text-red-600 mt-1 font-semibold">Tied — playoff required</div>
                 )}
               </td>
-              <td className="px-2 py-2 text-center text-gray-700">{e.wins ?? 0}</td>
-              <td className="px-2 py-2 text-center text-gray-500">{e.losses ?? 0}</td>
-              <td className="px-2 py-2 text-center text-gray-500">{e.ippons ?? 0}</td>
-              <td className="px-2 py-2 text-center text-gray-500">{e.wazaAriWins ?? 0}</td>
-              <td className="px-2 py-2 text-center text-gray-500">{e.shidosReceived ?? 0}</td>
+              <td className="px-4 py-4 text-center text-2xl font-black tabular-nums text-gray-900">{e.wins ?? 0}</td>
+              <td className="px-4 py-4 text-center text-2xl font-black tabular-nums text-gray-400">{e.losses ?? 0}</td>
+              <td className="px-4 py-4 text-center text-xl font-bold tabular-nums text-gray-700">{e.ippons ?? 0}</td>
+              <td className="px-4 py-4 text-center text-xl font-bold tabular-nums text-gray-700">{e.wazaAriWins ?? 0}</td>
+              <td className="px-4 py-4 text-center text-xl font-bold tabular-nums text-amber-700">{e.shidosReceived ?? 0}</td>
             </tr>
           ))}
         </tbody>
@@ -177,19 +186,19 @@ function RoundRobinTable({ entries }: { entries: StandingEntry[] }) {
 
 function EliminationList({ entries }: { entries: StandingEntry[] }) {
   return (
-    <ul className="space-y-1.5">
+    <ul className="space-y-2">
       {entries.map((e) => (
         <li
           key={e.competitor.id}
-          className={`flex items-center gap-3 px-3 py-2 rounded ${rankRowClass(e.rank)}`}
+          className={`flex items-center gap-4 px-4 py-3 rounded ${rankRowClass(e.rank)}`}
         >
-          <div className="w-6 flex justify-center">{rankBadge(e.rank)}</div>
+          <div className="w-10 flex justify-center">{rankBadge(e.rank)}</div>
           <div className="flex-1">
-            <div className="font-medium text-gray-900">
-              {e.competitor.lastName.toUpperCase()} {e.competitor.firstName}
+            <div className="font-bold text-gray-900 text-lg uppercase tracking-wide">
+              {e.competitor.lastName} {e.competitor.firstName}
             </div>
             {e.competitor.club && (
-              <div className="text-xs text-gray-500">{e.competitor.club}</div>
+              <div className="text-sm text-gray-500 mt-0.5">{e.competitor.club}</div>
             )}
           </div>
         </li>
