@@ -7,8 +7,8 @@ import {
 import { BracketType, MatchPhase } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { generateRoundRobinMatches } from './round-robin.util';
-import { generateSingleRepechageMatches } from './single-repechage.util';
 import { generatePoolsMatches, isPoolsBracketSize } from './pools.util';
+import { generateDoubleRepechageMatches } from './double-repechage.util';
 
 @Injectable()
 export class BracketsService {
@@ -48,9 +48,9 @@ export class BracketsService {
         } else if (isPoolsBracketSize(competitorCount)) {
           bracketType = BracketType.POOLS;
         } else {
-          // 16+ competitors: single elimination. Real DOUBLE_REPECHAGE
-          // (proper repechage paths + bronze fights) is tracked as ENG-A3 in TODOS.md.
-          bracketType = BracketType.SINGLE_REPECHAGE;
+          // 16+ competitors: real IJF double-repechage. Main bracket + 2
+          // repechage paths + 2 bronze fights = 2 distinct bronze medalists.
+          bracketType = BracketType.DOUBLE_REPECHAGE;
         }
 
         await tx.category.update({
@@ -100,15 +100,17 @@ export class BracketsService {
           // scoreboard.service.advanceWinner once the pool stage completes,
           // because we need actual standings to fill in competitor IDs.
         } else {
-          const pairings = generateSingleRepechageMatches(competitorCount);
-          for (const p of pairings) {
+          // DOUBLE_REPECHAGE (16+ competitors): main bracket + 2 repechage +
+          // 2 bronze placeholder slots.
+          const drMatches = generateDoubleRepechageMatches(competitorCount);
+          for (const m of drMatches) {
             matchesToCreate.push({
-              round: p.round,
-              poolPosition: p.poolPosition,
-              competitor1Id: p.competitor1Index !== null ? competitorIds[p.competitor1Index] : null,
-              competitor2Id: p.competitor2Index !== null ? competitorIds[p.competitor2Index] : null,
-              phase: null,
-              poolGroup: null,
+              round: m.round,
+              poolPosition: m.poolPosition,
+              competitor1Id: m.competitor1Index !== null ? competitorIds[m.competitor1Index] : null,
+              competitor2Id: m.competitor2Index !== null ? competitorIds[m.competitor2Index] : null,
+              phase: m.phase as MatchPhase | null,
+              poolGroup: m.poolGroup,
             });
           }
         }

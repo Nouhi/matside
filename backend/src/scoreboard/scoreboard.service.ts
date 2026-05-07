@@ -3,6 +3,7 @@ import { MatchPhase, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { getNextSlot } from '../brackets/single-repechage.util';
 import { knockoutFormatFor } from '../brackets/pools.util';
+import { halfFor, totalRoundsFor as drTotalRoundsFor } from '../brackets/double-repechage.util';
 import { rankRoundRobin } from '../standings/round-robin.util';
 import { MatchScores as StandingMatchScores, StandingMatch } from '../standings/standings.types';
 
@@ -188,6 +189,7 @@ export class ScoreboardService {
       round: number;
       poolPosition: number;
       phase: MatchPhase | null;
+      poolGroup: string | null;
       competitor1Id: string | null;
       competitor2Id: string | null;
     },
@@ -202,6 +204,11 @@ export class ScoreboardService {
 
     if (category.bracketType === 'POOLS') {
       await this.advanceWinnerInPools(completedMatch, winnerId);
+      return;
+    }
+
+    if (category.bracketType === 'DOUBLE_REPECHAGE') {
+      await this.advanceWinnerInDoubleRepechage(completedMatch, winnerId);
       return;
     }
 
@@ -224,6 +231,108 @@ export class ScoreboardService {
       where: { id: nextMatch.id },
       data: updateData,
     });
+  }
+
+  /**
+   * DOUBLE_REPECHAGE bracket advancement (16+ competitors).
+   *
+   * Phase routing:
+   *   - Main bracket R1..(QF-1): winner advances via getNextSlot. Loser eliminated.
+   *   - QF (round = totalRounds-2): winner → SF. Loser → repechage of same half.
+   *   - SF (round = totalRounds-1): winner → Final. Loser → bronze of same half.
+   *   - REPECHAGE: winner → bronze of same half (as competitor1; SF loser is competitor2).
+   *   - KNOCKOUT_BRONZE / Final: terminal.
+   */
+  private async advanceWinnerInDoubleRepechage(
+    completedMatch: {
+      id: string;
+      categoryId: string;
+      round: number;
+      poolPosition: number;
+      phase: MatchPhase | null;
+      poolGroup: string | null;
+      competitor1Id: string | null;
+      competitor2Id: string | null;
+    },
+    winnerId: string,
+  ): Promise<void> {
+    const categoryId = completedMatch.categoryId;
+    const loserId =
+      completedMatch.competitor1Id === winnerId
+        ? completedMatch.competitor2Id
+        : completedMatch.competitor1Id;
+
+    // Repechage: winner goes to bronze of same half (competitor1 slot).
+    if (completedMatch.phase === MatchPhase.REPECHAGE) {
+      const half = completedMatch.poolGroup;
+      if (!half) return;
+      const bronze = await this.prisma.match.findFirst({
+        where: { categoryId, phase: MatchPhase.KNOCKOUT_BRONZE, poolGroup: half },
+      });
+      if (!bronze) return;
+      await this.prisma.match.update({
+        where: { id: bronze.id },
+        data: { competitor1: { connect: { id: winnerId } } },
+      });
+      return;
+    }
+
+    // Bronze and any unrecognised phase: terminal
+    if (completedMatch.phase === MatchPhase.KNOCKOUT_BRONZE) return;
+
+    // Main bracket: figure out which round this is (by counting competitors)
+    const competitors = await this.prisma.competitor.count({
+      where: { categoryId, registrationStatus: { not: 'WITHDRAWN' } },
+    });
+    const totalRounds = drTotalRoundsFor(competitors);
+    const isQF = completedMatch.round === totalRounds - 2;
+    const isSF = completedMatch.round === totalRounds - 1;
+
+    // Always advance the winner to the next main-bracket slot.
+    const next = getNextSlot(completedMatch.round, completedMatch.poolPosition);
+    const nextMatch = await this.prisma.match.findFirst({
+      where: {
+        categoryId,
+        round: next.round,
+        poolPosition: next.position,
+        phase: null,
+      },
+    });
+    if (nextMatch) {
+      const updateData: Prisma.MatchUpdateInput = next.isCompetitor1
+        ? { competitor1: { connect: { id: winnerId } } }
+        : { competitor2: { connect: { id: winnerId } } };
+      await this.prisma.match.update({ where: { id: nextMatch.id }, data: updateData });
+    }
+
+    // QF loser → repechage of same half
+    if (isQF && loserId) {
+      const half = halfFor(completedMatch.round, completedMatch.poolPosition, totalRounds);
+      const rep = await this.prisma.match.findFirst({
+        where: { categoryId, phase: MatchPhase.REPECHAGE, poolGroup: half },
+      });
+      if (rep) {
+        // Two QF losers feed each repechage. First arrival → competitor1, second → competitor2.
+        const slot: Prisma.MatchUpdateInput = rep.competitor1Id === null
+          ? { competitor1: { connect: { id: loserId } } }
+          : { competitor2: { connect: { id: loserId } } };
+        await this.prisma.match.update({ where: { id: rep.id }, data: slot });
+      }
+    }
+
+    // SF loser → bronze of same half (as competitor2; repechage winner is competitor1)
+    if (isSF && loserId) {
+      const half = halfFor(completedMatch.round, completedMatch.poolPosition, totalRounds);
+      const bronze = await this.prisma.match.findFirst({
+        where: { categoryId, phase: MatchPhase.KNOCKOUT_BRONZE, poolGroup: half },
+      });
+      if (bronze) {
+        await this.prisma.match.update({
+          where: { id: bronze.id },
+          data: { competitor2: { connect: { id: loserId } } },
+        });
+      }
+    }
   }
 
   private async advanceWinnerInPools(
