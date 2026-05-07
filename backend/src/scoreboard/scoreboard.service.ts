@@ -1,8 +1,9 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { getNextSlot } from '../brackets/single-repechage.util';
 
-export type ScoreEventType = 'WAZA_ARI' | 'SHIDO' | 'OSAEKOMI_START' | 'OSAEKOMI_STOP';
+export type ScoreEventType = 'WAZA_ARI' | 'YUKO' | 'SHIDO' | 'IPPON';
 
 export interface ScoreEvent {
   type: ScoreEventType;
@@ -10,9 +11,25 @@ export interface ScoreEvent {
   timestamp: number;
 }
 
+export interface CompetitorScore {
+  wazaAri: number;
+  yuko: number;
+  shido: number;
+}
+
 export interface MatchScores {
-  competitor1: { wazaAri: number; shido: number };
-  competitor2: { wazaAri: number; shido: number };
+  competitor1: CompetitorScore;
+  competitor2: CompetitorScore;
+}
+
+const EMPTY_SCORE: CompetitorScore = { wazaAri: 0, yuko: 0, shido: 0 };
+
+function normalizeScores(raw: unknown): MatchScores {
+  const scores = (raw ?? {}) as Partial<MatchScores>;
+  return {
+    competitor1: { ...EMPTY_SCORE, ...(scores.competitor1 ?? {}) },
+    competitor2: { ...EMPTY_SCORE, ...(scores.competitor2 ?? {}) },
+  };
 }
 
 interface ApplyResult {
@@ -34,15 +51,14 @@ export class ScoreboardService {
     if (!match) throw new NotFoundException('Match not found');
     if (match.status !== 'ACTIVE') throw new BadRequestException('Match is not active');
 
-    const scores: MatchScores = (match.scores as any) || {
-      competitor1: { wazaAri: 0, shido: 0 },
-      competitor2: { wazaAri: 0, shido: 0 },
-    };
+    const scores = normalizeScores(match.scores);
 
     const side = this.getCompetitorSide(match, event.competitorId);
 
     if (event.type === 'WAZA_ARI') {
       scores[side].wazaAri += 1;
+    } else if (event.type === 'YUKO') {
+      scores[side].yuko += 1;
     } else if (event.type === 'SHIDO') {
       scores[side].shido += 1;
     }
@@ -51,7 +67,11 @@ export class ScoreboardService {
     let winMethod: string | undefined;
     let winnerId: string | undefined;
 
-    if (scores[side].wazaAri >= 2) {
+    if (event.type === 'IPPON') {
+      terminated = true;
+      winMethod = 'IPPON';
+      winnerId = event.competitorId;
+    } else if (scores[side].wazaAri >= 2) {
       terminated = true;
       winMethod = 'IPPON';
       winnerId = event.competitorId;
@@ -74,6 +94,10 @@ export class ScoreboardService {
       include: { competitor1: true, competitor2: true },
     });
 
+    if (terminated && winnerId) {
+      await this.advanceWinner(updated, winnerId);
+    }
+
     return { match: updated, terminated, winMethod, winnerId };
   }
 
@@ -83,8 +107,8 @@ export class ScoreboardService {
     if (match.status !== 'SCHEDULED') throw new BadRequestException('Match is not in SCHEDULED status');
 
     const scores: MatchScores = {
-      competitor1: { wazaAri: 0, shido: 0 },
-      competitor2: { wazaAri: 0, shido: 0 },
+      competitor1: { ...EMPTY_SCORE },
+      competitor2: { ...EMPTY_SCORE },
     };
 
     return this.prisma.match.update({
@@ -99,7 +123,7 @@ export class ScoreboardService {
     if (!match) throw new NotFoundException('Match not found');
     if (match.status !== 'ACTIVE') throw new BadRequestException('Match is not active');
 
-    return this.prisma.match.update({
+    const updated = await this.prisma.match.update({
       where: { id: matchId },
       data: {
         status: 'COMPLETED',
@@ -108,6 +132,10 @@ export class ScoreboardService {
       },
       include: { competitor1: true, competitor2: true },
     });
+
+    await this.advanceWinner(updated, winnerId);
+
+    return updated;
   }
 
   async getMatchState(matchId: string) {
@@ -148,5 +176,35 @@ export class ScoreboardService {
     if (match.competitor1Id === competitorId) return 'competitor1';
     if (match.competitor2Id === competitorId) return 'competitor2';
     throw new BadRequestException('Competitor is not in this match');
+  }
+
+  private async advanceWinner(
+    completedMatch: { id: string; categoryId: string; round: number; poolPosition: number },
+    winnerId: string,
+  ): Promise<void> {
+    const category = await this.prisma.category.findUnique({
+      where: { id: completedMatch.categoryId },
+    });
+    if (!category || category.bracketType === 'ROUND_ROBIN') return;
+
+    const next = getNextSlot(completedMatch.round, completedMatch.poolPosition);
+
+    const nextMatch = await this.prisma.match.findFirst({
+      where: {
+        categoryId: completedMatch.categoryId,
+        round: next.round,
+        poolPosition: next.position,
+      },
+    });
+    if (!nextMatch) return;
+
+    const updateData: Prisma.MatchUpdateInput = next.isCompetitor1
+      ? { competitor1: { connect: { id: winnerId } } }
+      : { competitor2: { connect: { id: winnerId } } };
+
+    await this.prisma.match.update({
+      where: { id: nextMatch.id },
+      data: updateData,
+    });
   }
 }
