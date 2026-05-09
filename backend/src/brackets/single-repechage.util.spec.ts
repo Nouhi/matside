@@ -1,38 +1,64 @@
-import { generateSingleRepechageMatches } from './single-repechage.util';
+import { generateSingleRepechageMatches, getNextSlot } from './single-repechage.util';
 
 describe('generateSingleRepechageMatches', () => {
   it('returns 1 match (final) for 2 competitors', () => {
     const matches = generateSingleRepechageMatches(2);
     expect(matches).toHaveLength(1);
-  });
-
-  it('returns 2 first-round matches for 4 competitors', () => {
-    const matches = generateSingleRepechageMatches(4);
-    expect(matches).toHaveLength(2);
-    expect(matches.every((m) => m.round === 1)).toBe(true);
-  });
-
-  it('generates fewer than 4 matches for 5 competitors (byes handled)', () => {
-    const matches = generateSingleRepechageMatches(5);
-    expect(matches.length).toBeGreaterThan(0);
-    expect(matches.length).toBeLessThan(4);
-  });
-
-  it('returns 4 first-round matches for 8 competitors', () => {
-    const matches = generateSingleRepechageMatches(8);
-    expect(matches).toHaveLength(4);
-  });
-
-  it('seeds correctly: first match is seed 0 vs seed 7 for 8 competitors', () => {
-    const matches = generateSingleRepechageMatches(8);
+    expect(matches[0].round).toBe(1);
     expect(matches[0].competitor1Index).toBe(0);
-    expect(matches[0].competitor2Index).toBe(7);
+    expect(matches[0].competitor2Index).toBe(1);
   });
 
-  it('all competitor indices are within range [0, competitorCount-1]', () => {
+  it('returns full bracket (2 R1 + 1 final) for 4 competitors', () => {
+    const matches = generateSingleRepechageMatches(4);
+    expect(matches).toHaveLength(3);
+    const r1 = matches.filter((m) => m.round === 1);
+    const r2 = matches.filter((m) => m.round === 2);
+    expect(r1).toHaveLength(2);
+    expect(r2).toHaveLength(1);
+    expect(r1.every((m) => m.competitor1Index !== null && m.competitor2Index !== null)).toBe(true);
+    expect(r2[0].competitor1Index).toBeNull();
+    expect(r2[0].competitor2Index).toBeNull();
+  });
+
+  it('handles 5 competitors (3 byes, 1 R1 match, 2 R2 slots, 1 final)', () => {
+    const matches = generateSingleRepechageMatches(5);
+    const r1 = matches.filter((m) => m.round === 1);
+    const r2 = matches.filter((m) => m.round === 2);
+    const r3 = matches.filter((m) => m.round === 3);
+
+    expect(r1).toHaveLength(1);
+    expect(r2).toHaveLength(2);
+    expect(r3).toHaveLength(1);
+
+    const filledR2 = r2.filter(
+      (m) => m.competitor1Index !== null || m.competitor2Index !== null,
+    );
+    expect(filledR2.length).toBeGreaterThan(0);
+  });
+
+  it('returns 4 R1 + 2 SF + 1 final for 8 competitors', () => {
+    const matches = generateSingleRepechageMatches(8);
+    expect(matches).toHaveLength(7);
+    const r1 = matches.filter((m) => m.round === 1);
+    const r2 = matches.filter((m) => m.round === 2);
+    const r3 = matches.filter((m) => m.round === 3);
+    expect(r1).toHaveLength(4);
+    expect(r2).toHaveLength(2);
+    expect(r3).toHaveLength(1);
+  });
+
+  it('seeds correctly: R1 position 1 is seed 0 vs seed 7 for 8 competitors', () => {
+    const matches = generateSingleRepechageMatches(8);
+    const r1pos1 = matches.find((m) => m.round === 1 && m.poolPosition === 1)!;
+    expect(r1pos1.competitor1Index).toBe(0);
+    expect(r1pos1.competitor2Index).toBe(7);
+  });
+
+  it('every R1 match has both competitors when no byes (8 competitors)', () => {
     const count = 8;
     const matches = generateSingleRepechageMatches(count);
-    for (const m of matches) {
+    for (const m of matches.filter((x) => x.round === 1)) {
       expect(m.competitor1Index).toBeGreaterThanOrEqual(0);
       expect(m.competitor1Index).toBeLessThan(count);
       expect(m.competitor2Index).toBeGreaterThanOrEqual(0);
@@ -40,10 +66,54 @@ describe('generateSingleRepechageMatches', () => {
     }
   });
 
-  it('no competitor fights themselves', () => {
+  it('no competitor fights themselves in R1', () => {
     const matches = generateSingleRepechageMatches(8);
-    for (const m of matches) {
+    for (const m of matches.filter((x) => x.round === 1)) {
       expect(m.competitor1Index).not.toBe(m.competitor2Index);
     }
+  });
+
+  it('every competitor appears exactly once in R1 + bye-pre-fills', () => {
+    const count = 5;
+    const matches = generateSingleRepechageMatches(count);
+    const seen = new Set<number>();
+    for (const m of matches.filter((x) => x.round === 1)) {
+      if (m.competitor1Index !== null) seen.add(m.competitor1Index);
+      if (m.competitor2Index !== null) seen.add(m.competitor2Index);
+    }
+    for (const m of matches.filter((x) => x.round === 2)) {
+      if (m.competitor1Index !== null) seen.add(m.competitor1Index);
+      if (m.competitor2Index !== null) seen.add(m.competitor2Index);
+    }
+    expect(seen.size).toBe(count);
+  });
+
+  it('produces sorted output by round then poolPosition', () => {
+    const matches = generateSingleRepechageMatches(8);
+    for (let i = 1; i < matches.length; i++) {
+      const prev = matches[i - 1];
+      const curr = matches[i];
+      const prevKey = prev.round * 1000 + prev.poolPosition;
+      const currKey = curr.round * 1000 + curr.poolPosition;
+      expect(currKey).toBeGreaterThan(prevKey);
+    }
+  });
+});
+
+describe('getNextSlot', () => {
+  it('R1 position 1 → R2 position 1 as competitor1', () => {
+    expect(getNextSlot(1, 1)).toEqual({ round: 2, position: 1, isCompetitor1: true });
+  });
+
+  it('R1 position 2 → R2 position 1 as competitor2', () => {
+    expect(getNextSlot(1, 2)).toEqual({ round: 2, position: 1, isCompetitor1: false });
+  });
+
+  it('R1 position 3 → R2 position 2 as competitor1', () => {
+    expect(getNextSlot(1, 3)).toEqual({ round: 2, position: 2, isCompetitor1: true });
+  });
+
+  it('R2 position 2 → R3 position 1 as competitor2', () => {
+    expect(getNextSlot(2, 2)).toEqual({ round: 3, position: 1, isCompetitor1: false });
   });
 });

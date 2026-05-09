@@ -4,10 +4,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { BracketType } from '@prisma/client';
+import { BracketType, MatchPhase } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { generateRoundRobinMatches } from './round-robin.util';
-import { generateSingleRepechageMatches } from './single-repechage.util';
+import { generatePoolsMatches, isPoolsBracketSize } from './pools.util';
+import { generateDoubleRepechageMatches } from './double-repechage.util';
 
 @Injectable()
 export class BracketsService {
@@ -44,9 +45,11 @@ export class BracketsService {
         let bracketType: BracketType;
         if (competitorCount <= 4) {
           bracketType = BracketType.ROUND_ROBIN;
-        } else if (competitorCount <= 7) {
-          bracketType = BracketType.SINGLE_REPECHAGE;
+        } else if (isPoolsBracketSize(competitorCount)) {
+          bracketType = BracketType.POOLS;
         } else {
+          // 16+ competitors: real IJF double-repechage. Main bracket + 2
+          // repechage paths + 2 bronze fights = 2 distinct bronze medalists.
           bracketType = BracketType.DOUBLE_REPECHAGE;
         }
 
@@ -60,28 +63,60 @@ export class BracketsService {
         });
 
         const competitorIds = category.competitors.map((c) => c.id);
-        let matches: { round: number; poolPosition: number; competitor1Id: string | null; competitor2Id: string | null }[];
+        const matchesToCreate: {
+          round: number;
+          poolPosition: number;
+          competitor1Id: string | null;
+          competitor2Id: string | null;
+          phase: MatchPhase | null;
+          poolGroup: string | null;
+        }[] = [];
 
         if (bracketType === BracketType.ROUND_ROBIN) {
           const pairings = generateRoundRobinMatches(competitorCount);
-          matches = pairings.map((p) => ({
-            round: p.round,
-            poolPosition: p.poolPosition,
-            competitor1Id: p.competitor1Index !== null ? competitorIds[p.competitor1Index] : null,
-            competitor2Id: p.competitor2Index !== null ? competitorIds[p.competitor2Index] : null,
-          }));
+          for (const p of pairings) {
+            matchesToCreate.push({
+              round: p.round,
+              poolPosition: p.poolPosition,
+              competitor1Id: p.competitor1Index !== null ? competitorIds[p.competitor1Index] : null,
+              competitor2Id: p.competitor2Index !== null ? competitorIds[p.competitor2Index] : null,
+              phase: null,
+              poolGroup: null,
+            });
+          }
+        } else if (bracketType === BracketType.POOLS) {
+          const poolMatches = generatePoolsMatches(competitorCount);
+          for (const pm of poolMatches) {
+            matchesToCreate.push({
+              round: pm.round,
+              poolPosition: pm.poolPosition,
+              competitor1Id: competitorIds[pm.competitor1Index],
+              competitor2Id: competitorIds[pm.competitor2Index],
+              phase: MatchPhase.POOL,
+              poolGroup: pm.poolGroup,
+            });
+          }
+          // Knockout matches are NOT generated upfront. They get created by
+          // scoreboard.service.advanceWinner once the pool stage completes,
+          // because we need actual standings to fill in competitor IDs.
         } else {
-          const pairings = generateSingleRepechageMatches(competitorCount);
-          matches = pairings.map((p) => ({
-            round: p.round,
-            poolPosition: p.poolPosition,
-            competitor1Id: p.competitor1Index !== null ? competitorIds[p.competitor1Index] : null,
-            competitor2Id: p.competitor2Index !== null ? competitorIds[p.competitor2Index] : null,
-          }));
+          // DOUBLE_REPECHAGE (16+ competitors): main bracket + 2 repechage +
+          // 2 bronze placeholder slots.
+          const drMatches = generateDoubleRepechageMatches(competitorCount);
+          for (const m of drMatches) {
+            matchesToCreate.push({
+              round: m.round,
+              poolPosition: m.poolPosition,
+              competitor1Id: m.competitor1Index !== null ? competitorIds[m.competitor1Index] : null,
+              competitor2Id: m.competitor2Index !== null ? competitorIds[m.competitor2Index] : null,
+              phase: m.phase as MatchPhase | null,
+              poolGroup: m.poolGroup,
+            });
+          }
         }
 
         let sequenceNum = 0;
-        for (const match of matches) {
+        for (const match of matchesToCreate) {
           sequenceNum++;
           await tx.match.create({
             data: {
@@ -92,6 +127,9 @@ export class BracketsService {
               competitor2Id: match.competitor2Id,
               duration: competition.matchDuration,
               sequenceNum,
+              phase: match.phase,
+              poolGroup: match.poolGroup,
+              matId: category.matId ?? null,
             },
           });
         }
@@ -101,7 +139,7 @@ export class BracketsService {
           categoryName: category.name,
           competitorCount,
           bracketType,
-          matchCount: matches.length,
+          matchCount: matchesToCreate.length,
         });
       }
 

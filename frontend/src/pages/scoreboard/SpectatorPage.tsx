@@ -14,8 +14,8 @@ interface MatState {
     winner?: { firstName: string; lastName: string };
     winMethod?: string;
     scores?: {
-      competitor1: { wazaAri: number; shido: number };
-      competitor2: { wazaAri: number; shido: number };
+      competitor1: { wazaAri: number; yuko?: number; shido: number };
+      competitor2: { wazaAri: number; yuko?: number; shido: number };
     };
     goldenScore?: boolean;
   };
@@ -26,28 +26,77 @@ interface Competition {
   name: string;
 }
 
-function ScoreIndicator({ wazaAri, shido }: { wazaAri: number; shido: number }) {
+function MiniScore({
+  label,
+  value,
+  isBlue,
+}: {
+  label: string;
+  value: number;
+  isBlue: boolean;
+}) {
+  const labelColor = isBlue ? 'text-blue-200' : 'text-gray-500';
+  const valueColor = isBlue ? 'text-white' : 'text-gray-900';
   return (
-    <div className="flex items-center gap-2">
-      <div className="flex gap-0.5">
-        {[0, 1].map((i) => (
-          <div
-            key={i}
-            className={`w-4 h-4 rounded-full border border-gray-400 ${
-              i < wazaAri ? 'bg-green-500 border-green-500' : ''
-            }`}
-          />
-        ))}
+    <div className="flex flex-col items-center justify-center min-w-[36px]">
+      <div className={`${labelColor} text-[9px] font-bold uppercase tracking-wider leading-none`}>
+        {label}
       </div>
-      <div className="flex gap-0.5">
-        {[0, 1, 2].map((i) => (
-          <div
-            key={i}
-            className={`w-3 h-4 rounded-sm ${
-              i < shido ? 'bg-yellow-400' : 'border border-gray-300'
-            }`}
-          />
-        ))}
+      <div className={`${valueColor} font-black tabular-nums leading-none mt-0.5 text-xl`}>{value}</div>
+    </div>
+  );
+}
+
+function MiniShido({ count, isBlue }: { count: number; isBlue: boolean }) {
+  const labelColor = isBlue ? 'text-amber-300' : 'text-amber-700';
+  const filled = 'bg-amber-400 border-amber-400';
+  const emptyBorder = isBlue ? 'border-amber-300/40' : 'border-gray-400';
+  return (
+    <div className="flex flex-col items-center justify-center min-w-[42px]">
+      <div className={`${labelColor} text-[9px] font-bold uppercase tracking-wider leading-none`}>S</div>
+      <div className="flex gap-0.5 mt-1">
+        {count >= 3 ? (
+          <div className="w-7 h-4 rounded-sm border bg-red-600 border-red-700" />
+        ) : (
+          [0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className={`w-2 h-4 rounded-sm border ${i < count ? filled : `bg-transparent ${emptyBorder}`}`}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CompetitorBand({
+  name,
+  scores,
+  isBlue,
+  isWinner,
+}: {
+  name: string;
+  scores: { wazaAri: number; yuko: number; shido: number };
+  isBlue: boolean;
+  isWinner: boolean;
+}) {
+  const baseBg = isBlue ? 'bg-[#0a3a7a]' : 'bg-white';
+  const baseText = isBlue ? 'text-white' : 'text-gray-900';
+  const stripeBg = isBlue ? 'bg-blue-400' : 'bg-gray-200';
+  const winnerRing = isWinner ? 'ring-2 ring-inset ring-green-400' : '';
+  const dividerBorder = isBlue ? 'border-blue-300/30' : 'border-gray-300';
+
+  return (
+    <div className={`flex items-stretch ${baseBg} ${baseText} ${winnerRing}`}>
+      <div className={`${stripeBg} w-1.5`} />
+      <div className="flex-1 flex items-center px-3 py-2 min-w-0">
+        <span className="font-bold text-sm uppercase truncate">{name || '—'}</span>
+      </div>
+      <div className={`flex divide-x ${dividerBorder} px-1`}>
+        <div className="px-2"><MiniScore label="W" value={scores.wazaAri} isBlue={isBlue} /></div>
+        <div className="px-2"><MiniScore label="Y" value={scores.yuko} isBlue={isBlue} /></div>
+        <div className="px-2"><MiniShido count={scores.shido} isBlue={isBlue} /></div>
       </div>
     </div>
   );
@@ -55,23 +104,41 @@ function ScoreIndicator({ wazaAri, shido }: { wazaAri: number; shido: number }) 
 
 function MatCard({ mat }: { mat: MatState }) {
   const match = mat.currentMatch;
+  const c1Name = match?.competitor1
+    ? `${match.competitor1.lastName} ${match.competitor1.firstName}`
+    : 'TBD';
+  const c2Name = match?.competitor2
+    ? `${match.competitor2.lastName} ${match.competitor2.firstName}`
+    : 'TBD';
+  const c1Scores = {
+    wazaAri: match?.scores?.competitor1?.wazaAri ?? 0,
+    yuko: match?.scores?.competitor1?.yuko ?? 0,
+    shido: match?.scores?.competitor1?.shido ?? 0,
+  };
+  const c2Scores = {
+    wazaAri: match?.scores?.competitor2?.wazaAri ?? 0,
+    yuko: match?.scores?.competitor2?.yuko ?? 0,
+    shido: match?.scores?.competitor2?.shido ?? 0,
+  };
+  const winner1 = match?.winner?.lastName === match?.competitor1?.lastName;
+  const winner2 = match?.winner?.lastName === match?.competitor2?.lastName;
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-200">
-        <span className="font-bold text-gray-900">Mat {mat.number}</span>
+    <div className="bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
+      <div className="flex items-center justify-between px-4 py-2 bg-gray-900 text-white">
+        <span className="font-bold">Mat {mat.number}</span>
         {match && (
           <span
-            className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+            className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
               match.status === 'ACTIVE'
-                ? 'bg-green-100 text-green-700'
+                ? 'bg-green-500 text-white'
                 : match.status === 'COMPLETED'
-                  ? 'bg-gray-100 text-gray-600'
-                  : 'bg-blue-100 text-blue-700'
+                  ? 'bg-gray-500 text-white'
+                  : 'bg-blue-500 text-white'
             }`}
           >
             {match.status}
-            {match.goldenScore && ' (GS)'}
+            {match.goldenScore && ' · GS'}
           </span>
         )}
       </div>
@@ -81,44 +148,12 @@ function MatCard({ mat }: { mat: MatState }) {
       )}
 
       {match && (
-        <div className="p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span
-              className={`font-medium text-sm ${
-                match.winner?.lastName === match.competitor1?.lastName
-                  ? 'text-green-700 font-bold'
-                  : 'text-gray-900'
-              }`}
-            >
-              {match.competitor1 ? `${match.competitor1.lastName} ${match.competitor1.firstName}` : 'TBD'}
-            </span>
-            {match.scores && (
-              <ScoreIndicator
-                wazaAri={match.scores.competitor1.wazaAri}
-                shido={match.scores.competitor1.shido}
-              />
-            )}
-          </div>
-          <div className="flex items-center justify-between">
-            <span
-              className={`font-medium text-sm ${
-                match.winner?.lastName === match.competitor2?.lastName
-                  ? 'text-green-700 font-bold'
-                  : 'text-gray-900'
-              }`}
-            >
-              {match.competitor2 ? `${match.competitor2.lastName} ${match.competitor2.firstName}` : 'TBD'}
-            </span>
-            {match.scores && (
-              <ScoreIndicator
-                wazaAri={match.scores.competitor2.wazaAri}
-                shido={match.scores.competitor2.shido}
-              />
-            )}
-          </div>
+        <div>
+          <CompetitorBand name={c1Name} scores={c1Scores} isBlue isWinner={winner1} />
+          <CompetitorBand name={c2Name} scores={c2Scores} isBlue={false} isWinner={winner2} />
           {match.status === 'COMPLETED' && match.winMethod && (
-            <div className="mt-2 text-xs text-gray-500 text-center">
-              {match.winMethod.replace('_', ' ')}
+            <div className="px-4 py-1.5 bg-amber-50 border-t border-amber-200 text-xs font-bold text-amber-900 text-center uppercase tracking-wider">
+              {match.winMethod.replace(/_/g, ' ')}
             </div>
           )}
         </div>
@@ -132,7 +167,9 @@ export function SpectatorPage() {
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [mats, setMats] = useState<MatState[]>([]);
   const [loading, setLoading] = useState(true);
+  const [offline, setOffline] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const offlineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchData = async () => {
     if (!competitionId) return;
@@ -143,8 +180,13 @@ export function SpectatorPage() {
       ]);
       setCompetition(compData);
       setMats(matsData);
+      setOffline(false);
+      if (offlineTimerRef.current) clearTimeout(offlineTimerRef.current);
+      offlineTimerRef.current = setTimeout(() => setOffline(true), 15_000);
     } catch {
-      // silently retry on next interval
+      if (!offlineTimerRef.current) {
+        offlineTimerRef.current = setTimeout(() => setOffline(true), 15_000);
+      }
     } finally {
       setLoading(false);
     }
@@ -155,6 +197,7 @@ export function SpectatorPage() {
     intervalRef.current = setInterval(fetchData, 5000);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      if (offlineTimerRef.current) clearTimeout(offlineTimerRef.current);
     };
   }, [competitionId]);
 
@@ -176,6 +219,12 @@ export function SpectatorPage() {
         </h1>
         <p className="text-sm text-gray-500 mt-0.5">Live Scores</p>
       </header>
+
+      {offline && (
+        <div role="alert" aria-live="assertive" className="bg-red-600 text-white px-4 py-2 text-center font-bold uppercase tracking-wider text-xs">
+          Offline — reconnecting…
+        </div>
+      )}
 
       <div className="p-4 max-w-lg mx-auto">
         {mats.length === 0 && (

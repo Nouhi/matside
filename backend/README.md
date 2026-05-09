@@ -1,98 +1,65 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# matside backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+NestJS 11 + Prisma 7 + PostgreSQL. JWT-authenticated REST API + Socket.IO scoreboard gateway.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+For the full repo overview and setup, see the [top-level README](../README.md). For the product spec, see [docs/designs/judo-competition-manager.md](../docs/designs/judo-competition-manager.md).
 
-## Description
-
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
+## Quick start
 
 ```bash
-$ npm install
+npm install
+cp .env.example .env
+# edit DATABASE_URL if needed
+npx prisma migrate dev
+npm run start:dev   # http://localhost:3000
 ```
 
-## Compile and run the project
+## Module layout
+
+| Module | Responsibility |
+|---|---|
+| `auth/` | Email/password + JWT for organisers. PIN auth for table officials lives in `scoreboard/mat.service.ts`. |
+| `competitions/` | Competition CRUD, status flow (DRAFT → REGISTRATION → WEIGH_IN → ACTIVE → COMPLETED). |
+| `competitors/` | Self-registration, weight updates, withdraw. |
+| `categories/` | IJF weight-class generation per age/gender, category-to-mat balancing. |
+| `brackets/` | Bracket generation (round-robin for ≤4 competitors, single-repechage for 5+). Emits the full elimination tree with bye-prefilling. |
+| `scoreboard/` | Match scoring (`scoreboard.service.ts`), Socket.IO gateway (`scoreboard.gateway.ts`), osaekomi auto-scoring with setTimeout, bracket advancement on match completion. Mat PIN auth. |
+| `standings/` | Round-robin standings with full IJF tiebreakers, elimination podium derivation. Pure utilities — heavily tested in isolation. |
+| `prisma/` | PrismaService wrapper. Schema + migrations live in `prisma/`. |
+
+## Schema
+
+`prisma/schema.prisma` is the source of truth. Run `npx prisma studio` to browse data locally. Run `npx prisma migrate dev --name <description>` after every schema change.
+
+## Tests
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm test                         # all Jest unit tests
+npm test -- --testPathPatterns=standings    # filter by path
+npm run test:cov                 # with coverage
 ```
 
-## Run tests
+Pure utilities (`brackets/*.util.ts`, `standings/*.util.ts`, `categories/age-group.util.ts`) are 100% covered. Service tests use in-memory PrismaService mocks (see `competitions.service.spec.ts` for the pattern). Gateway tests use Jest fake timers — see `scoreboard.gateway.spec.ts` for the osaekomi-resolution test.
 
+## API
+
+There is no published API contract yet. Routes are defined per controller — `npm run start:dev` logs every mapped route on boot. Most endpoints are JWT-protected (`@UseGuards(JwtAuthGuard)`). Public exceptions: competitor self-registration, brackets read, scoreboard websocket viewer mode (controller mode requires a per-mat PIN).
+
+## Common tasks
+
+**Reset the local database**
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npx prisma migrate reset    # drops + re-applies all migrations
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
+**Add a new module**
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+nest g module <name>
+nest g service <name>
+nest g controller <name>
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+**Generate the Prisma client manually** (rarely needed — `migrate dev` does it automatically)
+```bash
+npx prisma generate
+```

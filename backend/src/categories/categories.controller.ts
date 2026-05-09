@@ -1,7 +1,9 @@
 import {
+  Body,
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Req,
   UseGuards,
@@ -41,5 +43,24 @@ export class CategoriesController {
   ) {
     const user = req.user as { sub: string; email: string };
     return this.categoriesService.assignCompetitor(competitorId, user.sub);
+  }
+
+  @Post('competitions/:competitionId/categories/assign-mats')
+  assignCategoriesToMats(
+    @Req() req: express.Request,
+    @Param('competitionId') competitionId: string,
+  ) {
+    const user = req.user as { sub: string; email: string };
+    return this.categoriesService.assignCategoriesToMats(competitionId, user.sub);
+  }
+
+  @Patch('categories/:id/mat')
+  assignCategoryToMat(
+    @Req() req: express.Request,
+    @Param('id') categoryId: string,
+    @Body() body: { matId: string | null },
+  ) {
+    const user = req.user as { sub: string; email: string };
+    return this.categoriesService.assignCategoryToMat(categoryId, body.matId, user.sub);
   }
 }

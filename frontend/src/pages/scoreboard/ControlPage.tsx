@@ -158,60 +158,116 @@ function OsaekomiTimer({ osaekomi }: { osaekomi: OsaekomiState }) {
   );
 }
 
+function ScoreCell({
+  label,
+  value,
+  isBlue,
+}: {
+  label: string;
+  value: number;
+  isBlue: boolean;
+}) {
+  const labelColor = isBlue ? 'text-blue-200' : 'text-gray-500';
+  const valueColor = isBlue ? 'text-white' : 'text-gray-900';
+  const borderColor = isBlue ? 'border-blue-300/30' : 'border-gray-300';
+  return (
+    <div className={`flex flex-col items-center justify-center px-3 border-l ${borderColor} min-w-[64px]`}>
+      <div className={`${labelColor} font-bold text-xs uppercase tracking-wider`}>{label}</div>
+      <div className={`${valueColor} font-black tabular-nums leading-none mt-1 text-4xl`}>{value}</div>
+    </div>
+  );
+}
+
+function ShidoCell({ count, isBlue }: { count: number; isBlue: boolean }) {
+  const labelColor = isBlue ? 'text-amber-300' : 'text-amber-700';
+  const filled = 'bg-amber-400 border-amber-400';
+  const emptyBorder = isBlue ? 'border-amber-300/40' : 'border-gray-400';
+  const borderColor = isBlue ? 'border-blue-300/30' : 'border-gray-300';
+  return (
+    <div className={`flex flex-col items-center justify-center px-3 border-l ${borderColor} min-w-[64px]`}>
+      <div className={`${labelColor} font-bold text-xs uppercase tracking-wider`}>S</div>
+      <div className="flex gap-1 mt-2">
+        {count >= 3 ? (
+          <div className="w-12 h-6 rounded-sm border-2 bg-red-600 border-red-700 shadow-[0_0_10px_rgba(220,38,38,0.7)]" />
+        ) : (
+          [0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className={`w-3 h-6 rounded-sm border-2 ${i < count ? filled : `bg-transparent ${emptyBorder}`}`}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CompetitorColumn({
   competitor,
   scores,
-  side,
+  isBlue,
   isActive,
+  onIppon,
   onWazaAri,
+  onYuko,
   onShido,
 }: {
   competitor?: { id: string; firstName: string; lastName: string };
-  scores: { wazaAri: number; shido: number };
-  side: 'left' | 'right';
+  scores: { wazaAri: number; yuko: number; shido: number };
+  isBlue: boolean;
   isActive: boolean;
+  onIppon: () => void;
   onWazaAri: () => void;
+  onYuko: () => void;
   onShido: () => void;
 }) {
   const name = competitor ? `${competitor.lastName} ${competitor.firstName}` : 'TBD';
+  const rowBg = isBlue ? 'bg-[#0a3a7a]' : 'bg-white';
+  const rowText = isBlue ? 'text-white' : 'text-gray-900';
+  const stripeBg = isBlue ? 'bg-blue-400' : 'bg-gray-300';
+  const sideLabel = isBlue ? 'BLUE' : 'WHITE';
+  const sideLabelColor = isBlue ? 'text-blue-200' : 'text-gray-500';
 
   return (
-    <div className={`flex flex-col gap-4 ${side === 'right' ? 'items-end' : 'items-start'}`}>
-      <h2 className="text-2xl font-bold text-white truncate max-w-full">{name}</h2>
-      <div className="flex items-center gap-3">
-        <div className="flex gap-1">
-          {[0, 1].map((i) => (
-            <div
-              key={i}
-              className={`w-8 h-8 rounded-full border-2 border-white ${
-                i < scores.wazaAri ? 'bg-green-500' : 'bg-transparent'
-              }`}
-            />
-          ))}
+    <div className="flex flex-col gap-3">
+      <div className={`flex items-stretch ${rowBg} ${rowText} rounded-lg overflow-hidden border border-gray-700`}>
+        <div className={`${stripeBg} w-2`} />
+        <div className="flex-1 flex flex-col justify-center px-3 py-2 min-w-0">
+          <div className={`${sideLabelColor} text-[10px] font-bold uppercase tracking-widest`}>
+            {sideLabel}
+          </div>
+          <h2 className="text-lg font-bold uppercase truncate leading-tight">{name}</h2>
         </div>
-        <div className="flex gap-1">
-          {[0, 1, 2].map((i) => (
-            <div
-              key={i}
-              className={`w-6 h-8 rounded-sm ${
-                i < scores.shido ? 'bg-yellow-400' : 'border-2 border-yellow-400/40'
-              }`}
-            />
-          ))}
-        </div>
+        <ScoreCell label="W" value={scores.wazaAri} isBlue={isBlue} />
+        <ScoreCell label="Y" value={scores.yuko} isBlue={isBlue} />
+        <ShidoCell count={scores.shido} isBlue={isBlue} />
       </div>
-      <div className="flex gap-3 w-full">
+      <button
+        onClick={onIppon}
+        disabled={!isActive}
+        className="w-full min-h-[60px] bg-red-600 hover:bg-red-700 active:bg-red-800 disabled:opacity-30 text-white font-black text-xl rounded-lg transition-colors tracking-wider"
+      >
+        +IPPON
+      </button>
+      <div className="flex gap-2 w-full">
         <button
           onClick={onWazaAri}
           disabled={!isActive}
-          className="flex-1 min-h-[80px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:opacity-30 text-white font-bold text-lg rounded-lg transition-colors"
+          className="flex-1 min-h-[64px] bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-30 text-white font-bold text-sm rounded-lg transition-colors"
         >
           +WAZA-ARI
         </button>
         <button
+          onClick={onYuko}
+          disabled={!isActive}
+          className="flex-1 min-h-[64px] bg-cyan-600 hover:bg-cyan-700 active:bg-cyan-800 disabled:opacity-30 text-white font-bold text-sm rounded-lg transition-colors"
+        >
+          +YUKO
+        </button>
+        <button
           onClick={onShido}
           disabled={!isActive}
-          className="flex-1 min-h-[80px] bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 disabled:opacity-30 text-black font-bold text-lg rounded-lg transition-colors"
+          className="flex-1 min-h-[64px] bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 disabled:opacity-30 text-black font-bold text-sm rounded-lg transition-colors"
         >
           +SHIDO
         </button>
@@ -232,6 +288,13 @@ function ControlBoard({
   const [showEndModal, setShowEndModal] = useState(false);
 
   const isActive = matchState?.status === 'ACTIVE';
+  const buttonsEnabled = isActive && isConnected;
+
+  useEffect(() => {
+    if (matchState && matchState.status !== 'ACTIVE') {
+      setTimerRunning(false);
+    }
+  }, [matchState?.id, matchState?.status]);
 
   const handleStartMatch = useCallback(() => {
     if (matchState) {
@@ -286,9 +349,18 @@ function ControlBoard({
     );
   }
 
-  const scores = matchState?.scores || {
-    competitor1: { wazaAri: 0, shido: 0 },
-    competitor2: { wazaAri: 0, shido: 0 },
+  const rawScores = matchState?.scores;
+  const scores = {
+    competitor1: {
+      wazaAri: rawScores?.competitor1?.wazaAri ?? 0,
+      yuko: rawScores?.competitor1?.yuko ?? 0,
+      shido: rawScores?.competitor1?.shido ?? 0,
+    },
+    competitor2: {
+      wazaAri: rawScores?.competitor2?.wazaAri ?? 0,
+      yuko: rawScores?.competitor2?.yuko ?? 0,
+      shido: rawScores?.competitor2?.shido ?? 0,
+    },
   };
 
   return (
@@ -303,8 +375,14 @@ function ControlBoard({
             </span>
           )}
         </span>
-        <span className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+        <span className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`} />
       </div>
+
+      {!isConnected && (
+        <div role="alert" aria-live="assertive" className="bg-red-600 text-white px-4 py-2 text-center font-bold uppercase tracking-widest text-sm">
+          Connection lost — your scores will not save until reconnected
+        </div>
+      )}
 
       {!matchState && (
         <div className="flex-1 flex items-center justify-center text-gray-400 text-lg">
@@ -318,17 +396,21 @@ function ControlBoard({
             <CompetitorColumn
               competitor={matchState.competitor1}
               scores={scores.competitor1}
-              side="left"
-              isActive={isActive}
+              isBlue
+              isActive={buttonsEnabled}
+              onIppon={() => matchState.competitor1 && actions.scoreIppon(matchState.competitor1.id)}
               onWazaAri={() => matchState.competitor1 && actions.scoreWazaAri(matchState.competitor1.id)}
+              onYuko={() => matchState.competitor1 && actions.scoreYuko(matchState.competitor1.id)}
               onShido={() => matchState.competitor1 && actions.scoreShido(matchState.competitor1.id)}
             />
             <CompetitorColumn
               competitor={matchState.competitor2}
               scores={scores.competitor2}
-              side="right"
-              isActive={isActive}
+              isBlue={false}
+              isActive={buttonsEnabled}
+              onIppon={() => matchState.competitor2 && actions.scoreIppon(matchState.competitor2.id)}
               onWazaAri={() => matchState.competitor2 && actions.scoreWazaAri(matchState.competitor2.id)}
+              onYuko={() => matchState.competitor2 && actions.scoreYuko(matchState.competitor2.id)}
               onShido={() => matchState.competitor2 && actions.scoreShido(matchState.competitor2.id)}
             />
           </div>

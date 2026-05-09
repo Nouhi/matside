@@ -68,11 +68,14 @@ model Category {
   minWeight     Decimal
   maxWeight     Decimal
   bracketType   BracketType @default(ROUND_ROBIN)
+  matId         String?
+  mat           Mat?        @relation(fields: [matId], references: [id], onDelete: SetNull)
 
   competitors Competitor[]
   matches     Match[]
 
   @@index([competitionId])
+  @@index([matId])
 }
 
 enum Gender {
@@ -91,8 +94,17 @@ enum AgeGroup {
 
 enum BracketType {
   ROUND_ROBIN
+  POOLS
   SINGLE_REPECHAGE
   DOUBLE_REPECHAGE
+}
+
+enum MatchPhase {
+  POOL
+  KNOCKOUT_SF
+  KNOCKOUT_FINAL
+  KNOCKOUT_BRONZE
+  REPECHAGE
 }
 
 // ─── Competitor ───
@@ -153,7 +165,8 @@ model Mat {
   pin            String      @default("")
   currentMatchId String?
 
-  matches Match[]
+  matches    Match[]
+  categories Category[]
 
   @@unique([competitionId, number])
   @@index([competitionId])
@@ -181,6 +194,8 @@ model Match {
   duration      Int         @default(240)
   goldenScore   Boolean     @default(false)
   sequenceNum   Int         @default(0)
+  phase         MatchPhase?
+  poolGroup     String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
