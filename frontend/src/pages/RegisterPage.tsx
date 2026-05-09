@@ -1,7 +1,8 @@
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useMemo, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
+import { projectIjfCategory, type Gender } from '@/lib/ijf';
 
 const BELTS = [
   'WHITE',
@@ -13,6 +14,14 @@ const BELTS = [
   'BLACK',
 ];
 
+interface PublicCompetition {
+  id: string;
+  name: string;
+  date: string;
+  location: string;
+  status: string;
+}
+
 export function RegisterPage() {
   const { id } = useParams<{ id: string }>();
   const [submitted, setSubmitted] = useState(false);
@@ -23,10 +32,29 @@ export function RegisterPage() {
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
-  const [gender, setGender] = useState('MALE');
+  const [gender, setGender] = useState<Gender>('MALE');
   const [weight, setWeight] = useState('');
   const [belt, setBelt] = useState('WHITE');
   const [club, setClub] = useState('');
+  const [competition, setCompetition] = useState<PublicCompetition | null>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    api
+      .get<PublicCompetition>(`/public/competitions/${id}`)
+      .then(setCompetition)
+      .catch(() => {
+        // Public competition fetch is best-effort; preview just won't render.
+      });
+  }, [id]);
+
+  const projection = useMemo(() => {
+    if (!competition || !dateOfBirth) return null;
+    const dob = new Date(dateOfBirth);
+    if (Number.isNaN(dob.getTime())) return null;
+    const w = weight ? parseFloat(weight) : null;
+    return projectIjfCategory(dob, gender, w, new Date(competition.date));
+  }, [competition, dateOfBirth, gender, weight]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -149,7 +177,7 @@ export function RegisterPage() {
                 <select
                   id="gender"
                   value={gender}
-                  onChange={(e) => setGender(e.target.value)}
+                  onChange={(e) => setGender(e.target.value as Gender)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                 >
                   <option value="MALE">Male</option>
@@ -206,6 +234,37 @@ export function RegisterPage() {
                 />
               </div>
             </div>
+
+            {projection && (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-md text-sm">
+                <div className="flex items-center gap-2 text-blue-900 font-medium">
+                  <span>IJF category preview</span>
+                </div>
+                <div className="mt-1 text-blue-800">
+                  Age <span className="font-semibold">{projection.age}</span>
+                  {' · '}
+                  Group <span className="font-semibold">{projection.ageGroup}</span>
+                  {projection.weightLabel && (
+                    <>
+                      {' · '}
+                      Weight class{' '}
+                      <span className="font-semibold">{projection.weightLabel}</span>
+                    </>
+                  )}
+                </div>
+                {projection.categoryName ? (
+                  <div className="mt-1 text-xs text-blue-700">
+                    Will be assigned to: <span className="font-mono">{projection.categoryName}</span>
+                  </div>
+                ) : (
+                  <div className="mt-1 text-xs text-blue-700">
+                    {weight
+                      ? 'No matching IJF weight class for this age group and weight.'
+                      : 'Enter weight to see the matching IJF weight class.'}
+                  </div>
+                )}
+              </div>
+            )}
 
             {error && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-md text-red-700 text-sm">

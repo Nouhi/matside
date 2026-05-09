@@ -15,6 +15,13 @@ interface Competition {
   status: string;
 }
 
+interface IjfProjection {
+  age: number;
+  ageGroup: string;
+  weightLabel: string | null;
+  categoryName: string | null;
+}
+
 interface Competitor {
   id: string;
   firstName: string;
@@ -26,7 +33,17 @@ interface Competitor {
   belt: string;
   club: string;
   registrationStatus: string;
+  projection?: IjfProjection;
 }
+
+const AGE_GROUP_STYLES: Record<string, string> = {
+  U13: 'bg-pink-50 text-pink-700',
+  U15: 'bg-purple-50 text-purple-700',
+  CADET: 'bg-indigo-50 text-indigo-700',
+  JUNIOR: 'bg-blue-50 text-blue-700',
+  SENIOR: 'bg-emerald-50 text-emerald-700',
+  VETERAN: 'bg-amber-50 text-amber-700',
+};
 
 interface Match {
   id: string;
@@ -383,8 +400,10 @@ function CompetitorsTab({
           <tr className="border-b border-gray-200 bg-gray-50">
             <th className="text-left px-6 py-3 font-medium text-gray-500">Name</th>
             <th className="text-left px-6 py-3 font-medium text-gray-500">Club</th>
+            <th className="text-left px-6 py-3 font-medium text-gray-500">Age</th>
             <th className="text-left px-6 py-3 font-medium text-gray-500">Weight</th>
             <th className="text-left px-6 py-3 font-medium text-gray-500">Gender</th>
+            <th className="text-left px-6 py-3 font-medium text-gray-500">IJF Category</th>
             <th className="text-left px-6 py-3 font-medium text-gray-500">Belt</th>
             <th className="text-left px-6 py-3 font-medium text-gray-500">Status</th>
             {isWeighIn && <th className="text-left px-6 py-3 font-medium text-gray-500">Actions</th>}
@@ -395,6 +414,9 @@ function CompetitorsTab({
             <tr key={c.id} className={`border-b border-gray-100 hover:bg-gray-50 ${c.registrationStatus === 'WITHDRAWN' ? 'opacity-50' : ''}`}>
               <td className="px-6 py-3 font-medium text-gray-900">{c.firstName} {c.lastName}</td>
               <td className="px-6 py-3 text-gray-600">{c.club}</td>
+              <td className="px-6 py-3 text-gray-600">
+                {c.projection ? `${c.projection.age}` : '—'}
+              </td>
               <td className="px-6 py-3 text-gray-600">
                 {isWeighIn && editingWeight === c.id ? (
                   <form
@@ -436,6 +458,22 @@ function CompetitorsTab({
                 )}
               </td>
               <td className="px-6 py-3 text-gray-600">{c.gender}</td>
+              <td className="px-6 py-3">
+                {c.projection ? (
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${AGE_GROUP_STYLES[c.projection.ageGroup] || 'bg-gray-100 text-gray-700'}`}>
+                      {c.projection.ageGroup}
+                    </span>
+                    {c.projection.weightLabel ? (
+                      <span className="text-xs font-mono text-gray-700">{c.projection.weightLabel}</span>
+                    ) : (
+                      <span className="text-xs text-gray-400 italic">no weight</span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-gray-400">—</span>
+                )}
+              </td>
               <td className="px-6 py-3 text-gray-600">{c.belt.replace(/_/g, ' ')}</td>
               <td className="px-6 py-3">
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${REG_STATUS_STYLES[c.registrationStatus] || 'bg-gray-100 text-gray-700'}`}>
