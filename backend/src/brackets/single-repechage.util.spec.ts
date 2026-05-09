@@ -21,20 +21,27 @@ describe('generateSingleRepechageMatches', () => {
     expect(r2[0].competitor2Index).toBeNull();
   });
 
-  it('handles 5 competitors (3 byes, 1 R1 match, 2 R2 slots, 1 final)', () => {
+  it('handles 5 competitors with explicit bye matches in R1', () => {
     const matches = generateSingleRepechageMatches(5);
     const r1 = matches.filter((m) => m.round === 1);
     const r2 = matches.filter((m) => m.round === 2);
     const r3 = matches.filter((m) => m.round === 3);
 
-    expect(r1).toHaveLength(1);
+    // 5 competitors → 8-slot bracket → 4 R1 slots, of which 3 are byes (one
+    // competitor + null) and 1 is a real match. Byes are explicit so the UI
+    // can render them.
+    expect(r1).toHaveLength(4);
     expect(r2).toHaveLength(2);
     expect(r3).toHaveLength(1);
 
-    const filledR2 = r2.filter(
-      (m) => m.competitor1Index !== null || m.competitor2Index !== null,
+    const realR1 = r1.filter(
+      (m) => m.competitor1Index !== null && m.competitor2Index !== null,
     );
-    expect(filledR2.length).toBeGreaterThan(0);
+    const byeR1 = r1.filter(
+      (m) => (m.competitor1Index === null) !== (m.competitor2Index === null),
+    );
+    expect(realR1).toHaveLength(1);
+    expect(byeR1).toHaveLength(3);
   });
 
   it('returns 4 R1 + 2 SF + 1 final for 8 competitors', () => {
@@ -86,6 +93,23 @@ describe('generateSingleRepechageMatches', () => {
       if (m.competitor2Index !== null) seen.add(m.competitor2Index);
     }
     expect(seen.size).toBe(count);
+  });
+
+  it('every competitor that gets a bye has an R1 record (regression)', () => {
+    // Regression: with 20 competitors in a 32-bracket, 12 get byes. Every
+    // bye-getter must appear in an R1 match (with the other side null) so
+    // the bracket UI can show them advancing — they should NOT appear only
+    // in R2 with no R1 trail.
+    const matches = generateSingleRepechageMatches(20);
+    const r1Competitors = new Set<number>();
+    for (const m of matches.filter((x) => x.round === 1)) {
+      if (m.competitor1Index !== null) r1Competitors.add(m.competitor1Index);
+      if (m.competitor2Index !== null) r1Competitors.add(m.competitor2Index);
+    }
+    // All 20 competitors must show up in R1 (real fight or bye record).
+    for (let i = 0; i < 20; i++) {
+      expect(r1Competitors.has(i)).toBe(true);
+    }
   });
 
   it('produces sorted output by round then poolPosition', () => {

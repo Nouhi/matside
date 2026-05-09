@@ -546,14 +546,13 @@ function EliminationBracket({ category }: { category: Category }) {
     const totalRounds = Math.ceil(Math.log2(competitorCount));
     const bracketSize = Math.pow(2, totalRounds);
 
-    const matchesByRound = new Map<number, Match[]>();
+    // Index by (round, poolPosition) so a sparse round (R1 with bye gaps)
+    // renders into the right visual slot. Indexing by array order would
+    // shift matches into wrong slots and break the bracket connector lines.
+    const matchAt = new Map<string, Match>();
     for (const match of matches) {
-      const existing = matchesByRound.get(match.round) ?? [];
-      existing.push(match);
-      matchesByRound.set(match.round, existing);
-    }
-    for (const [, arr] of matchesByRound) {
-      arr.sort((a, b) => a.poolPosition - b.poolPosition);
+      if (match.phase) continue; // skip repechage / bronze / pool — laid out elsewhere
+      matchAt.set(`${match.round}:${match.poolPosition}`, match);
     }
 
     const roundNames: string[] = [];
@@ -574,17 +573,17 @@ function EliminationBracket({ category }: { category: Category }) {
 
     for (let r = 0; r < totalRounds; r++) {
       const slotsInRound = bracketSize / Math.pow(2, r + 1);
-      const existingMatches = matchesByRound.get(r + 1) ?? [];
       const cards: CardPosition[] = [];
 
       if (r === 0) {
         for (let i = 0; i < slotsInRound; i++) {
           const y = HEADER_H + i * (CARD_H + ROW_GAP);
+          // Slot i corresponds to poolPosition i+1 in the data.
           cards.push({
             x: 0,
             y,
             centerY: y + CARD_H / 2,
-            match: existingMatches[i] ?? null,
+            match: matchAt.get(`1:${i + 1}`) ?? null,
           });
         }
       } else {
@@ -598,7 +597,7 @@ function EliminationBracket({ category }: { category: Category }) {
             x: r * colWidth,
             y,
             centerY: midY,
-            match: existingMatches[i] ?? null,
+            match: matchAt.get(`${r + 1}:${i + 1}`) ?? null,
           });
         }
       }
@@ -655,7 +654,7 @@ function EliminationBracket({ category }: { category: Category }) {
           ))}
         </svg>
 
-        {roundCards.map((cards, roundIndex) => (
+        {roundCards.map((_, roundIndex) => (
           <div
             key={roundIndex}
             className="absolute text-xs font-semibold text-gray-400 uppercase tracking-wide"
@@ -856,6 +855,11 @@ function MatchCard({ match }: { match: Match | null }) {
   const isCompleted = match?.status === 'COMPLETED';
   const isActive = match?.status === 'ACTIVE';
 
+  // A bye is a match record where exactly one competitor side is null. The
+  // empty side renders as "BYE" instead of "TBD" so the user understands the
+  // present competitor advanced without fighting.
+  const isBye = !!match && (c1 == null) !== (c2 == null);
+
   const c1Name = c1 ? `${c1.lastName.toUpperCase()} ${c1.firstName[0]}.` : null;
   const c2Name = c2 ? `${c2.lastName.toUpperCase()} ${c2.firstName[0]}.` : null;
   const isC1Winner = !!(winner && c1 && winner.id === c1.id);
@@ -863,11 +867,15 @@ function MatchCard({ match }: { match: Match | null }) {
 
   const borderClass = isActive
     ? 'border-amber-400 bg-amber-50/50 shadow-sm shadow-amber-100'
-    : isCompleted
-      ? 'border-gray-300 bg-white'
-      : match
-        ? 'border-gray-200 bg-white'
-        : 'border-dashed border-gray-200 bg-gray-50/50';
+    : isBye
+      ? 'border-gray-200 bg-gray-50/40'
+      : isCompleted
+        ? 'border-gray-300 bg-white'
+        : match
+          ? 'border-gray-200 bg-white'
+          : 'border-dashed border-gray-200 bg-gray-50/50';
+
+  const emptyLabel = isBye ? 'BYE' : 'TBD';
 
   return (
     <div className={`w-full h-full rounded border text-xs overflow-hidden flex flex-col ${borderClass}`}>
@@ -875,7 +883,7 @@ function MatchCard({ match }: { match: Match | null }) {
         <span
           className={`truncate ${
             !c1Name
-              ? 'text-gray-300 italic'
+              ? 'text-gray-400 italic uppercase tracking-wider text-[10px]'
               : isC1Winner
                 ? 'font-semibold text-gray-900'
                 : isCompleted
@@ -883,11 +891,16 @@ function MatchCard({ match }: { match: Match | null }) {
                   : 'text-gray-700'
           }`}
         >
-          {c1Name ?? (match ? 'TBD' : 'TBD')}
+          {c1Name ?? emptyLabel}
         </span>
-        {isCompleted && isC1Winner && match?.winMethod && (
+        {isCompleted && isC1Winner && match?.winMethod && !isBye && (
           <span className="ml-1 px-1 py-px rounded bg-green-100 text-green-700 text-[10px] font-bold leading-tight shrink-0">
             {WIN_METHOD_SHORT[match.winMethod] ?? match.winMethod}
+          </span>
+        )}
+        {isBye && isC1Winner && (
+          <span className="ml-1 px-1 py-px rounded bg-gray-200 text-gray-600 text-[9px] font-bold leading-tight shrink-0 uppercase tracking-wider">
+            adv
           </span>
         )}
       </div>
@@ -896,7 +909,7 @@ function MatchCard({ match }: { match: Match | null }) {
         <span
           className={`truncate ${
             !c2Name
-              ? 'text-gray-300 italic'
+              ? 'text-gray-400 italic uppercase tracking-wider text-[10px]'
               : isC2Winner
                 ? 'font-semibold text-gray-900'
                 : isCompleted
@@ -904,11 +917,16 @@ function MatchCard({ match }: { match: Match | null }) {
                   : 'text-gray-700'
           }`}
         >
-          {c2Name ?? (match ? 'TBD' : 'TBD')}
+          {c2Name ?? emptyLabel}
         </span>
-        {isCompleted && isC2Winner && match?.winMethod && (
+        {isCompleted && isC2Winner && match?.winMethod && !isBye && (
           <span className="ml-1 px-1 py-px rounded bg-green-100 text-green-700 text-[10px] font-bold leading-tight shrink-0">
             {WIN_METHOD_SHORT[match.winMethod] ?? match.winMethod}
+          </span>
+        )}
+        {isBye && isC2Winner && (
+          <span className="ml-1 px-1 py-px rounded bg-gray-200 text-gray-600 text-[9px] font-bold leading-tight shrink-0 uppercase tracking-wider">
+            adv
           </span>
         )}
       </div>
