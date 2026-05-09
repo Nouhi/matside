@@ -45,4 +45,20 @@ export const IJF_WEIGHT_CLASSES: WeightClass[] = [
   ...wc(Gender.FEMALE, AgeGroup.U15, [36, 40, 44, 48, 52, 57, 63, 63]),
   ...wc(Gender.MALE, AgeGroup.U13, [30, 34, 38, 42, 46, 50, 55, 55]),
   ...wc(Gender.FEMALE, AgeGroup.U13, [28, 32, 36, 40, 44, 48, 52, 52]),
+  ...wc(Gender.MALE, AgeGroup.VETERAN, [60, 66, 73, 81, 90, 100, 100]),
+  ...wc(Gender.FEMALE, AgeGroup.VETERAN, [48, 52, 57, 63, 70, 78, 78]),
 ];
+
+export function findIjfWeightClass(
+  gender: Gender,
+  ageGroup: AgeGroup,
+  weight: number,
+): WeightClass | undefined {
+  return IJF_WEIGHT_CLASSES.find(
+    (wc) =>
+      wc.gender === gender &&
+      wc.ageGroup === ageGroup &&
+      weight > wc.minWeight &&
+      weight <= wc.maxWeight,
+  );
+}

@@ -4,8 +4,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Gender, RegistrationStatus } from '@prisma/client';
+import { Competitor, Gender, RegistrationStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  IjfProjection,
+  projectIjfCategory,
+} from '../categories/ijf-projection.util';
+
+export type CompetitorWithProjection = Competitor & { projection: IjfProjection };
 
 @Injectable()
 export class CompetitorsService {
@@ -22,7 +28,7 @@ export class CompetitorsService {
       weight?: number;
       club?: string;
     },
-  ) {
+  ): Promise<CompetitorWithProjection> {
     const competition = await this.prisma.competition.findUnique({
       where: { id: competitionId },
     });
@@ -44,7 +50,7 @@ export class CompetitorsService {
       }
     }
 
-    return this.prisma.competitor.create({
+    const created = await this.prisma.competitor.create({
       data: {
         competitionId,
         firstName: data.firstName,
@@ -56,13 +62,24 @@ export class CompetitorsService {
         club: data.club ?? '',
       },
     });
+
+    return { ...created, projection: projectIjfCategory(created, competition.date) };
   }
 
-  findAll(competitionId: string) {
-    return this.prisma.competitor.findMany({
+  async findAll(competitionId: string): Promise<CompetitorWithProjection[]> {
+    const competition = await this.prisma.competition.findUnique({
+      where: { id: competitionId },
+      select: { date: true },
+    });
+    const competitors = await this.prisma.competitor.findMany({
       where: { competitionId },
       orderBy: { createdAt: 'desc' },
     });
+    if (!competition) return [];
+    return competitors.map((c) => ({
+      ...c,
+      projection: projectIjfCategory(c, competition.date),
+    }));
   }
 
   async updateWeight(id: string, organizerId: string, weight: number) {

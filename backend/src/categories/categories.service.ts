@@ -4,10 +4,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AgeGroup, Gender } from '@prisma/client';
+import { Gender } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { determineAgeGroup } from './age-group.util';
-import { IJF_WEIGHT_CLASSES, WeightClass } from './ijf-weight-classes';
+import { findIjfWeightClass, WeightClass } from './ijf-weight-classes';
 
 @Injectable()
 export class CategoriesService {
@@ -51,7 +51,7 @@ export class CategoriesService {
         if (!competitor.weight) continue;
 
         const ageGroup = determineAgeGroup(competitor.dateOfBirth, competition.date);
-        const weightClass = this.findWeightClass(
+        const weightClass = findIjfWeightClass(
           competitor.gender as Gender,
           ageGroup,
           Number(competitor.weight),
@@ -119,7 +119,7 @@ export class CategoriesService {
       competitor.dateOfBirth,
       competitor.competition.date,
     );
-    const weightClass = this.findWeightClass(
+    const weightClass = findIjfWeightClass(
       competitor.gender as Gender,
       ageGroup,
       Number(competitor.weight),
@@ -290,17 +290,4 @@ export class CategoriesService {
     return category;
   }
 
-  private findWeightClass(
-    gender: Gender,
-    ageGroup: AgeGroup,
-    weight: number,
-  ): WeightClass | undefined {
-    return IJF_WEIGHT_CLASSES.find(
-      (wc) =>
-        wc.gender === gender &&
-        wc.ageGroup === ageGroup &&
-        weight > wc.minWeight &&
-        weight <= wc.maxWeight,
-    );
-  }
 }

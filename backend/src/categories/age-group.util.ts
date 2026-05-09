@@ -11,7 +11,7 @@ export function determineAgeGroup(dateOfBirth: Date, competitionDate: Date): Age
   return AgeGroup.VETERAN;
 }
 
-function getAgeOnDate(dateOfBirth: Date, referenceDate: Date): number {
+export function getAgeOnDate(dateOfBirth: Date, referenceDate: Date): number {
   let age = referenceDate.getFullYear() - dateOfBirth.getFullYear();
   const monthDiff = referenceDate.getMonth() - dateOfBirth.getMonth();
   if (monthDiff < 0 || (monthDiff === 0 && referenceDate.getDate() < dateOfBirth.getDate())) {
