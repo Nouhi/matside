@@ -2,7 +2,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
-import { MapPin, Calendar, Users, Copy, Check, Layers, Swords } from 'lucide-react';
+import { MapPin, Calendar, Users, Copy, Check, Layers, Swords, Share2 } from 'lucide-react';
 import { useState } from 'react';
 import { BracketView } from '@/components/BracketView';
 import { StandingsTab } from '@/components/StandingsTab';
@@ -130,7 +130,6 @@ const REG_STATUS_STYLES: Record<string, string> = {
 export function CompetitionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
-  const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'competitors' | 'categories' | 'brackets' | 'mats' | 'standings'>('competitors');
 
   const { data: competition, isLoading: loadingComp } = useQuery<Competition>({
@@ -228,11 +227,20 @@ export function CompetitionDetailPage() {
     return STATUS_FLOW[idx + 1];
   }
 
+  const [copiedKind, setCopiedKind] = useState<'register' | 'spectator' | null>(null);
+
   function copyRegistrationLink() {
     const url = `${window.location.origin}/competitions/${id}/register`;
     navigator.clipboard.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedKind('register');
+    setTimeout(() => setCopiedKind(null), 2000);
+  }
+
+  function copySpectatorLink() {
+    const url = `${window.location.origin}/c/${id}`;
+    navigator.clipboard.writeText(url);
+    setCopiedKind('spectator');
+    setTimeout(() => setCopiedKind(null), 2000);
   }
 
   if (loadingComp) {
@@ -285,13 +293,21 @@ export function CompetitionDetailPage() {
               {statusMutation.isPending ? 'Updating...' : `Advance to ${nextStatus}`}
             </button>
           )}
+          <button
+            onClick={copySpectatorLink}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors"
+            title="Public bracket / schedule / results page"
+          >
+            {copiedKind === 'spectator' ? <Check size={16} /> : <Share2 size={16} />}
+            {copiedKind === 'spectator' ? 'Copied!' : 'Share Spectator Page'}
+          </button>
           {competition.status === 'REGISTRATION' && (
             <button
               onClick={copyRegistrationLink}
               className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors"
             >
-              {copied ? <Check size={16} /> : <Copy size={16} />}
-              {copied ? 'Copied!' : 'Share Registration Link'}
+              {copiedKind === 'register' ? <Check size={16} /> : <Copy size={16} />}
+              {copiedKind === 'register' ? 'Copied!' : 'Share Registration Link'}
             </button>
           )}
           {canGenerateCategories && (
