@@ -118,6 +118,20 @@ export class BracketsService {
         let sequenceNum = 0;
         for (const match of matchesToCreate) {
           sequenceNum++;
+
+          // R1 bye: only one competitor, the other is null. Mark COMPLETED
+          // immediately so the bracket UI shows the bye-getter advancing,
+          // and so any "next match on this mat" queue logic skips past it.
+          // Knockout-only phases (REPECHAGE, KNOCKOUT_BRONZE) always have
+          // both competitors null at generation; never auto-complete those.
+          const isR1Bye =
+            match.round === 1 &&
+            match.phase === null &&
+            ((match.competitor1Id === null) !== (match.competitor2Id === null));
+          const winnerId = isR1Bye
+            ? (match.competitor1Id ?? match.competitor2Id)
+            : null;
+
           await tx.match.create({
             data: {
               categoryId: category.id,
@@ -130,6 +144,13 @@ export class BracketsService {
               phase: match.phase,
               poolGroup: match.poolGroup,
               matId: category.matId ?? null,
+              ...(isR1Bye && winnerId
+                ? {
+                    status: 'COMPLETED',
+                    winnerId,
+                    winMethod: 'FUSEN_GACHI', // walkover / no opponent
+                  }
+                : {}),
             },
           });
         }

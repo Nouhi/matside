@@ -52,15 +52,27 @@ export function generateSingleRepechageMatches(competitorCount: number): Bracket
     const c1 = seed1 < competitorCount ? seed1 : null;
     const c2 = seed2 < competitorCount ? seed2 : null;
 
+    // Always create the R1 slot when at least one competitor is real, even
+    // when the opponent is a bye. This keeps the round-1 data dense so the
+    // UI can show "MOLLAEI vs BYE" instead of bye-getters materializing in
+    // round 2 with no R1 trail. The bye-getter is still pre-advanced into
+    // the round-2 slot via placeAdvancer.
     if (c1 !== null && c2 !== null) {
       const slot = getOrCreateSlot(1, position);
       slot.competitor1Index = c1;
       slot.competitor2Index = c2;
     } else if (c1 !== null) {
+      const slot = getOrCreateSlot(1, position);
+      slot.competitor1Index = c1;
+      slot.competitor2Index = null;
       placeAdvancer(1, position, c1);
     } else if (c2 !== null) {
+      const slot = getOrCreateSlot(1, position);
+      slot.competitor1Index = null;
+      slot.competitor2Index = c2;
       placeAdvancer(1, position, c2);
     }
+    // both null (only when bracketSize ≫ N): no slot — empty pair.
   }
 
   for (let round = 2; round <= totalRounds; round++) {
