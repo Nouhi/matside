@@ -8,6 +8,11 @@ import { RegisterPage } from '@/pages/RegisterPage';
 import { ControlPage } from '@/pages/scoreboard/ControlPage';
 import { DisplayPage } from '@/pages/scoreboard/DisplayPage';
 import { SpectatorPage } from '@/pages/scoreboard/SpectatorPage';
+import { PublicCompetitionLayout } from '@/pages/public/PublicCompetitionPage';
+import { PublicOverview } from '@/pages/public/PublicOverview';
+import { PublicBrackets } from '@/pages/public/PublicBrackets';
+import { PublicSchedule } from '@/pages/public/PublicSchedule';
+import { PublicResults } from '@/pages/public/PublicResults';
 import { ToastContainer } from '@/components/ToastContainer';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -44,6 +49,12 @@ function App() {
         <Route path="/mat/:matId/control" element={<ControlPage />} />
         <Route path="/mat/:matId/display" element={<DisplayPage />} />
         <Route path="/competition/:competitionId/live" element={<SpectatorPage />} />
+        <Route path="/c/:id" element={<PublicCompetitionLayout />}>
+          <Route index element={<PublicOverview />} />
+          <Route path="brackets" element={<PublicBrackets />} />
+          <Route path="schedule" element={<PublicSchedule />} />
+          <Route path="results" element={<PublicResults />} />
+        </Route>
       </Routes>
     </>
   );
