@@ -10,12 +10,16 @@ import {
   IjfProjection,
   projectIjfCategory,
 } from '../categories/ijf-projection.util';
+import { AthletesService } from '../athletes/athletes.service';
 
 export type CompetitorWithProjection = Competitor & { projection: IjfProjection };
 
 @Injectable()
 export class CompetitorsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private athletesService: AthletesService,
+  ) {}
 
   async register(
     competitionId: string,
@@ -50,17 +54,34 @@ export class CompetitorsService {
       }
     }
 
-    const created = await this.prisma.competitor.create({
-      data: {
-        competitionId,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        email: data.email ?? '',
-        dateOfBirth: data.dateOfBirth,
-        gender: data.gender,
-        weight: data.weight,
-        club: data.club ?? '',
-      },
+    // Wrap in a transaction so the athlete row and the competitor row land
+    // together. If the athlete create fails, we don't get an orphan
+    // registration, and vice versa.
+    const created = await this.prisma.$transaction(async (tx) => {
+      const athlete = await this.athletesService.findOrCreateForRegistration(
+        {
+          firstName: data.firstName,
+          lastName: data.lastName,
+          email: data.email ?? '',
+          dateOfBirth: data.dateOfBirth,
+          gender: data.gender,
+        },
+        tx,
+      );
+
+      return tx.competitor.create({
+        data: {
+          competitionId,
+          athleteId: athlete.id,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          email: data.email ?? '',
+          dateOfBirth: data.dateOfBirth,
+          gender: data.gender,
+          weight: data.weight,
+          club: data.club ?? '',
+        },
+      });
     });
 
     return { ...created, projection: projectIjfCategory(created, competition.date) };

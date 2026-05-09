@@ -8,6 +8,7 @@ import { CategoriesModule } from './categories/categories.module';
 import { BracketsModule } from './brackets/brackets.module';
 import { ScoreboardModule } from './scoreboard/scoreboard.module';
 import { StandingsModule } from './standings/standings.module';
+import { AthletesModule } from './athletes/athletes.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { StandingsModule } from './standings/standings.module';
     BracketsModule,
     ScoreboardModule,
     StandingsModule,
+    AthletesModule,
   ],
 })
 export class AppModule {}
