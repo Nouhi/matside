@@ -216,6 +216,12 @@ export class CategoriesService {
           where: { id: a.categoryId },
           data: { matId: a.matId },
         });
+        // Cascade matId to all this category's matches that haven't been
+        // played yet, so the per-mat queue picks them up.
+        await tx.match.updateMany({
+          where: { categoryId: a.categoryId, status: { not: 'COMPLETED' } },
+          data: { matId: a.matId },
+        });
       }
 
       return mats.map((mat) => ({
@@ -249,10 +255,18 @@ export class CategoriesService {
       }
     }
 
-    return this.prisma.category.update({
-      where: { id: categoryId },
-      data: { matId },
-      include: { mat: { select: { id: true, number: true } } },
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.category.update({
+        where: { id: categoryId },
+        data: { matId },
+        include: { mat: { select: { id: true, number: true } } },
+      });
+      // Cascade to non-completed matches so the queue tracks the override.
+      await tx.match.updateMany({
+        where: { categoryId, status: { not: 'COMPLETED' } },
+        data: { matId },
+      });
+      return updated;
     });
   }
 

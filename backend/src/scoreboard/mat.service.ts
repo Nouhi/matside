@@ -31,7 +31,7 @@ export class MatService {
   }
 
   async getMats(competitionId: string) {
-    return this.prisma.mat.findMany({
+    const mats = await this.prisma.mat.findMany({
       where: { competitionId },
       include: {
         categories: {
@@ -45,6 +45,43 @@ export class MatService {
       },
       orderBy: { number: 'asc' },
     });
+
+    // Build the queue (next ready matches) per mat.
+    const matsWithQueue = await Promise.all(
+      mats.map(async (mat) => {
+        const currentMatch = mat.currentMatchId
+          ? await this.prisma.match.findUnique({
+              where: { id: mat.currentMatchId },
+              include: {
+                competitor1: { select: { id: true, firstName: true, lastName: true, club: true } },
+                competitor2: { select: { id: true, firstName: true, lastName: true, club: true } },
+                category: { select: { name: true } },
+              },
+            })
+          : null;
+
+        const nextMatches = await this.prisma.match.findMany({
+          where: {
+            matId: mat.id,
+            status: 'SCHEDULED',
+            competitor1Id: { not: null },
+            competitor2Id: { not: null },
+            id: mat.currentMatchId ? { not: mat.currentMatchId } : undefined,
+          },
+          orderBy: [{ categoryId: 'asc' }, { sequenceNum: 'asc' }],
+          take: 8,
+          include: {
+            competitor1: { select: { id: true, firstName: true, lastName: true, club: true } },
+            competitor2: { select: { id: true, firstName: true, lastName: true, club: true } },
+            category: { select: { name: true } },
+          },
+        });
+
+        return { ...mat, currentMatch, nextMatches };
+      }),
+    );
+
+    return matsWithQueue;
   }
 
   async assignMatchToMat(matId: string, matchId: string, organizerId: string) {

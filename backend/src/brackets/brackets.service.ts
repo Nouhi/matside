@@ -129,6 +129,7 @@ export class BracketsService {
               sequenceNum,
               phase: match.phase,
               poolGroup: match.poolGroup,
+              matId: category.matId ?? null,
             },
           });
         }

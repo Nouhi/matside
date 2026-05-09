@@ -100,6 +100,7 @@ export class ScoreboardService {
 
     if (terminated && winnerId) {
       await this.advanceWinner(updated, winnerId);
+      if (updated.matId) await this.advanceMatQueue(updated.matId, updated.id);
     }
 
     return { match: updated, terminated, winMethod, winnerId };
@@ -138,8 +139,40 @@ export class ScoreboardService {
     });
 
     await this.advanceWinner(updated, winnerId);
+    if (updated.matId) await this.advanceMatQueue(updated.matId, updated.id);
 
     return updated;
+  }
+
+  /**
+   * After a match completes, if it was the current match on its mat, swap
+   * Mat.currentMatchId to the next ready match in the queue. "Ready" means
+   * status=SCHEDULED, both competitors set, on the same mat. Order is by
+   * (categoryId, sequenceNum) so a category's matches run consecutively.
+   *
+   * No-op if the completed match wasn't the current one (manual override
+   * scenario), or if the queue is empty.
+   */
+  private async advanceMatQueue(matId: string, completedMatchId: string): Promise<void> {
+    const mat = await this.prisma.mat.findUnique({ where: { id: matId } });
+    if (!mat) return;
+    if (mat.currentMatchId !== completedMatchId) return;
+
+    const next = await this.prisma.match.findFirst({
+      where: {
+        matId,
+        status: 'SCHEDULED',
+        competitor1Id: { not: null },
+        competitor2Id: { not: null },
+        id: { not: completedMatchId },
+      },
+      orderBy: [{ categoryId: 'asc' }, { sequenceNum: 'asc' }],
+    });
+
+    await this.prisma.mat.update({
+      where: { id: matId },
+      data: { currentMatchId: next?.id ?? null },
+    });
   }
 
   async getMatchState(matchId: string) {

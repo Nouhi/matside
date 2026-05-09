@@ -66,12 +66,26 @@ interface MatCategoryRef {
   _count: { competitors: number };
 }
 
+interface QueuedMatch {
+  id: string;
+  round: number;
+  poolPosition: number;
+  status: string;
+  category: { name: string };
+  competitor1?: { firstName: string; lastName: string; club?: string } | null;
+  competitor2?: { firstName: string; lastName: string; club?: string } | null;
+  phase?: string | null;
+  poolGroup?: string | null;
+}
+
 interface Mat {
   id: string;
   number: number;
   pin: string;
   currentMatchId: string | null;
   categories?: MatCategoryRef[];
+  currentMatch?: QueuedMatch | null;
+  nextMatches?: QueuedMatch[];
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -128,6 +142,7 @@ export function CompetitionDetailPage() {
     queryKey: ['mats', id],
     queryFn: () => api.get(`/competitions/${id}/mats`),
     enabled: activeTab === 'mats' || activeTab === 'categories',
+    refetchInterval: activeTab === 'mats' ? 5000 : false,
   });
 
   const statusMutation = useMutation({
@@ -673,32 +688,30 @@ function MatsTab({ competitionId, mats }: { competitionId: string; mats: Mat[] }
                 </div>
               )}
 
-              <div className="mb-3">
-                {mat.currentMatchId ? (
-                  <div className="text-sm">
-                    <span className="text-green-700 font-medium">Match assigned</span>
-                    <span className="text-gray-400 text-xs ml-2">{mat.currentMatchId.slice(0, 8)}...</span>
-                  </div>
-                ) : (
-                  <select
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white"
-                    defaultValue=""
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        assignMutation.mutate({ matId: mat.id, matchId: e.target.value });
-                      }
-                    }}
-                  >
-                    <option value="">
-                      {eligibleMatches.length === 0 ? 'No matches for this mat' : 'Assign a match...'}
+              <CurrentMatchCard mat={mat} />
+
+              <MatQueue matches={mat.nextMatches ?? []} />
+
+              <div className="mb-3 mt-3">
+                <select
+                  className="w-full px-3 py-2 text-xs border border-gray-300 rounded-md bg-white text-gray-600"
+                  defaultValue=""
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      assignMutation.mutate({ matId: mat.id, matchId: e.target.value });
+                      e.currentTarget.value = '';
+                    }
+                  }}
+                >
+                  <option value="">
+                    {eligibleMatches.length === 0 ? 'No matches available' : 'Manual override — pick a match'}
+                  </option>
+                  {eligibleMatches.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.category.name} R{m.round}: {m.competitor1?.lastName ?? '?'} vs {m.competitor2?.lastName ?? '?'}
                     </option>
-                    {eligibleMatches.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.category.name} R{m.round}: {m.competitor1?.lastName ?? '?'} vs {m.competitor2?.lastName ?? '?'}
-                      </option>
-                    ))}
-                  </select>
-                )}
+                  ))}
+                </select>
               </div>
               <div className="flex gap-2">
                 <Link
@@ -724,3 +737,82 @@ function MatsTab({ competitionId, mats }: { competitionId: string; mats: Mat[] }
   );
 }
 
+function phaseLabel(m: QueuedMatch): string {
+  if (m.phase === 'POOL') return `Pool ${m.poolGroup ?? ''}`.trim();
+  if (m.phase === 'KNOCKOUT_SF') return 'SF';
+  if (m.phase === 'KNOCKOUT_FINAL') return 'Final';
+  if (m.phase === 'KNOCKOUT_BRONZE') return m.poolGroup === 'TOP' || m.poolGroup === 'BOTTOM' ? `Bronze ${m.poolGroup}` : 'Bronze';
+  if (m.phase === 'REPECHAGE') return `Repechage ${m.poolGroup ?? ''}`.trim();
+  return `R${m.round}`;
+}
+
+function competitorName(c?: { firstName: string; lastName: string } | null): string {
+  if (!c) return 'TBD';
+  return `${c.lastName.toUpperCase()} ${c.firstName[0]}.`;
+}
+
+function CurrentMatchCard({ mat }: { mat: Mat }) {
+  const m = mat.currentMatch;
+  if (!m) {
+    return (
+      <div className="mb-3 px-3 py-2 rounded-md border border-dashed border-gray-300 text-xs text-gray-400 italic">
+        No match in progress
+      </div>
+    );
+  }
+  return (
+    <div className="mb-3 px-3 py-2 rounded-md bg-green-50 border border-green-200">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-green-700">Now playing</span>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-green-700/70">
+          {m.category.name} · {phaseLabel(m)}
+        </span>
+      </div>
+      <div className="text-sm font-bold text-gray-900">
+        {competitorName(m.competitor1)} <span className="text-gray-400 font-normal">vs</span> {competitorName(m.competitor2)}
+      </div>
+    </div>
+  );
+}
+
+function MatQueue({ matches }: { matches: QueuedMatch[] }) {
+  if (matches.length === 0) {
+    return null;
+  }
+  const showCount = Math.min(matches.length, 5);
+  return (
+    <div className="mb-3">
+      <div className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1.5">
+        Up next ({matches.length} queued)
+      </div>
+      <ol className="space-y-1">
+        {matches.slice(0, showCount).map((m, i) => (
+          <li
+            key={m.id}
+            className={`flex items-center gap-2 px-2 py-1 rounded text-xs border ${
+              i === 0 ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'
+            }`}
+          >
+            <span className={`font-bold tabular-nums w-4 text-center ${i === 0 ? 'text-amber-700' : 'text-gray-400'}`}>
+              {i + 1}
+            </span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 shrink-0">
+              {phaseLabel(m)}
+            </span>
+            <span className="truncate text-gray-700">
+              {competitorName(m.competitor1)} <span className="text-gray-400">vs</span> {competitorName(m.competitor2)}
+            </span>
+            <span className="ml-auto text-[10px] text-gray-400 truncate hidden sm:inline">
+              {m.category.name}
+            </span>
+          </li>
+        ))}
+        {matches.length > showCount && (
+          <li className="px-2 py-1 text-[10px] text-gray-400 italic">
+            … and {matches.length - showCount} more
+          </li>
+        )}
+      </ol>
+    </div>
+  );
+}
