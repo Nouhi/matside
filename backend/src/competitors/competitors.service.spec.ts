@@ -203,6 +203,100 @@ describe('CompetitorsService', () => {
     });
   });
 
+  describe('register — capacity cap', () => {
+    const baseInput = {
+      firstName: 'New',
+      lastName: 'Registrant',
+      dateOfBirth: new Date('1998-03-12'), // age 28 → SENIOR
+      gender: Gender.MALE,
+      weight: 72.5, // → SENIOR Men -73kg
+    };
+
+    function competitionWithCap(maxEntriesPerCategory: number | null) {
+      return {
+        id: 'comp-1',
+        status: 'REGISTRATION',
+        date: new Date('2026-06-15'),
+        maxEntriesPerCategory,
+      };
+    }
+
+    it('admits when no cap is set', async () => {
+      prisma.competition.findUnique.mockResolvedValue(competitionWithCap(null));
+      prisma.competitor.findFirst.mockResolvedValue(null);
+      prisma.competitor.findMany.mockResolvedValue([]);
+      prisma.competitor.create.mockResolvedValue({ id: 'c-new', ...baseInput });
+
+      await service.register('comp-1', baseInput);
+
+      // findMany was not called for capacity (cap is null)
+      expect(prisma.competitor.create).toHaveBeenCalled();
+    });
+
+    it('admits when cap is set and projected class is below cap', async () => {
+      prisma.competition.findUnique.mockResolvedValue(competitionWithCap(2));
+      prisma.competitor.findFirst.mockResolvedValue(null);
+      // One existing -73kg Senior Man already registered.
+      prisma.competitor.findMany.mockResolvedValue([
+        {
+          dateOfBirth: new Date('1995-01-01'),
+          gender: Gender.MALE,
+          weight: 70,
+        },
+      ]);
+      prisma.competitor.create.mockResolvedValue({ id: 'c-new', ...baseInput });
+
+      await service.register('comp-1', baseInput);
+
+      expect(prisma.competitor.create).toHaveBeenCalled();
+    });
+
+    it('REJECTS with 409 when projected class is already at cap', async () => {
+      prisma.competition.findUnique.mockResolvedValue(competitionWithCap(2));
+      prisma.competitor.findFirst.mockResolvedValue(null);
+      prisma.competitor.findMany.mockResolvedValue([
+        { dateOfBirth: new Date('1995-01-01'), gender: Gender.MALE, weight: 70 },
+        { dateOfBirth: new Date('1996-01-01'), gender: Gender.MALE, weight: 71 },
+      ]);
+
+      await expect(service.register('comp-1', baseInput)).rejects.toThrow(
+        /at capacity/i,
+      );
+      expect(prisma.competitor.create).not.toHaveBeenCalled();
+    });
+
+    it('does NOT count competitors in a different projected class against this one', async () => {
+      // Cap = 1. Existing competitor is in -81kg (74kg Senior Man), our
+      // registrant is -73kg. Should admit.
+      prisma.competition.findUnique.mockResolvedValue(competitionWithCap(1));
+      prisma.competitor.findFirst.mockResolvedValue(null);
+      prisma.competitor.findMany.mockResolvedValue([
+        { dateOfBirth: new Date('1995-01-01'), gender: Gender.MALE, weight: 74 },
+      ]);
+      prisma.competitor.create.mockResolvedValue({ id: 'c-new', ...baseInput });
+
+      await service.register('comp-1', baseInput);
+
+      expect(prisma.competitor.create).toHaveBeenCalled();
+    });
+
+    it('skips capacity check when registrant has no weight (walk-up)', async () => {
+      prisma.competition.findUnique.mockResolvedValue(competitionWithCap(0));
+      prisma.competitor.findFirst.mockResolvedValue(null);
+      prisma.competitor.create.mockResolvedValue({
+        id: 'c-new',
+        ...baseInput,
+        weight: undefined,
+      });
+
+      // No weight → no projected class → cap check bypassed even if cap is 0.
+      await service.register('comp-1', { ...baseInput, weight: undefined });
+
+      expect(prisma.competitor.findMany).not.toHaveBeenCalled();
+      expect(prisma.competitor.create).toHaveBeenCalled();
+    });
+  });
+
   describe('recordWeight', () => {
     const baseCompetitor = {
       id: 'c-1',

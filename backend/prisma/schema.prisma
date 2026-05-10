@@ -28,15 +28,20 @@ enum UserRole {
 // ─── Competition ───
 
 model Competition {
-  id               String            @id @default(cuid())
-  name             String
-  date             DateTime
-  location         String            @default("")
-  status           CompetitionStatus @default(DRAFT)
-  organizerId      String
-  organizer        User              @relation(fields: [organizerId], references: [id])
-  matchDuration    Int               @default(240)
-  goldenScoreLimit Int               @default(0)
+  id                     String            @id @default(cuid())
+  name                   String
+  date                   DateTime
+  location               String            @default("")
+  status                 CompetitionStatus @default(DRAFT)
+  organizerId            String
+  organizer              User              @relation(fields: [organizerId], references: [id])
+  matchDuration          Int               @default(240)
+  goldenScoreLimit       Int               @default(0)
+  // Max competitors allowed per projected IJF category (gender + ageGroup +
+  // weightLabel). Null disables the cap. Single shared value for now —
+  // per-class differentiated caps are a follow-up. Mat-time math typically
+  // breaks above 24-32 fighters per class.
+  maxEntriesPerCategory  Int?
 
   categories  Category[]
   competitors Competitor[]
