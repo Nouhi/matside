@@ -37,6 +37,7 @@ const BRACKET_LABELS: Record<string, string> = {
   POOLS: 'Pool Play',
   SINGLE_REPECHAGE: 'Single Elimination',
   DOUBLE_REPECHAGE: 'Double Repechage',
+  GRAND_SLAM: 'Grand Slam (4 pools)',
 };
 
 const WIN_METHOD_SHORT: Record<string, string> = {
@@ -133,6 +134,8 @@ export function BracketView({ categories }: { categories: Category[] }) {
             <RoundRobinGrid category={activeCategory} />
           ) : activeCategory.bracketType === 'POOLS' ? (
             <PoolsBracketView category={activeCategory} />
+          ) : activeCategory.bracketType === 'GRAND_SLAM' ? (
+            <GrandSlamBracketView category={activeCategory} />
           ) : (
             <EliminationBracket category={activeCategory} />
           )}
@@ -929,6 +932,165 @@ function MatchCard({ match }: { match: Match | null }) {
             adv
           </span>
         )}
+      </div>
+    </div>
+  );
+}
+
+// IJF Grand Slam 4-pool view. Layout:
+//   Left column: 4 stacked pool blocks (A/B/C/D), each a mini-bracket
+//   Middle column: main 4-team knockout (SF1, SF2, FINAL)
+//   Right column: repechage TOP/BOTTOM + bronze TOP/BOTTOM
+function GrandSlamBracketView({ category }: { category: Category }) {
+  const matches = category.matches ?? [];
+
+  const poolMatches = matches.filter((m) => m.phase === 'POOL');
+  const sfMatches = matches
+    .filter((m) => m.phase === 'KNOCKOUT_SF')
+    .sort((a, b) => a.poolPosition - b.poolPosition);
+  const finalMatch = matches.find((m) => m.phase === 'KNOCKOUT_FINAL');
+  const repTop = matches.find((m) => m.phase === 'REPECHAGE' && m.poolGroup === 'TOP');
+  const repBottom = matches.find((m) => m.phase === 'REPECHAGE' && m.poolGroup === 'BOTTOM');
+  const bronzeTop = matches.find(
+    (m) => m.phase === 'KNOCKOUT_BRONZE' && m.poolGroup === 'TOP',
+  );
+  const bronzeBottom = matches.find(
+    (m) => m.phase === 'KNOCKOUT_BRONZE' && m.poolGroup === 'BOTTOM',
+  );
+
+  const poolGroups: ('A' | 'B' | 'C' | 'D')[] = ['A', 'B', 'C', 'D'];
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* LEFT: pool mini-brackets */}
+      <div className="space-y-4">
+        {poolGroups.map((g) => (
+          <PoolMiniBracket
+            key={g}
+            poolGroup={g}
+            matches={poolMatches.filter((m) => m.poolGroup === g)}
+          />
+        ))}
+      </div>
+
+      {/* MIDDLE: main 4-team knockout */}
+      <div>
+        <h4 className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-3">
+          Main Bracket
+        </h4>
+        <div className="space-y-4">
+          <KnockoutColumn label="Semi-finals">
+            {sfMatches.map((m) => (
+              <KnockoutCard key={m.id} match={m} title={`SF ${m.poolPosition}`} />
+            ))}
+          </KnockoutColumn>
+          <KnockoutColumn label="Final">
+            <KnockoutCard match={finalMatch ?? null} title="Final" gold />
+          </KnockoutColumn>
+        </div>
+      </div>
+
+      {/* RIGHT: repechage + bronze, two cross-half lanes */}
+      <div>
+        <h4 className="text-xs font-bold uppercase tracking-widest text-amber-700 mb-3">
+          Repechage + Bronze
+        </h4>
+        <div className="space-y-4">
+          <RepechageLane
+            label="Top half"
+            repechage={repTop ?? null}
+            bronze={bronzeTop ?? null}
+          />
+          <RepechageLane
+            label="Bottom half"
+            repechage={repBottom ?? null}
+            bronze={bronzeBottom ?? null}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PoolMiniBracket({
+  poolGroup,
+  matches,
+}: {
+  poolGroup: 'A' | 'B' | 'C' | 'D';
+  matches: Match[];
+}) {
+  const sorted = [...matches].sort(
+    (a, b) => a.round - b.round || a.poolPosition - b.poolPosition,
+  );
+  const competitorCount = new Set(
+    sorted.flatMap((m) => [m.competitor1?.id, m.competitor2?.id].filter(Boolean)),
+  ).size;
+
+  return (
+    <div className="border border-gray-200 rounded-lg overflow-hidden">
+      <div className="bg-gray-100 px-3 py-2 border-b border-gray-200 flex items-baseline gap-2">
+        <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
+          Pool
+        </span>
+        <span className="text-2xl font-black text-gray-900 leading-none">
+          {poolGroup}
+        </span>
+        <span className="text-xs text-gray-500 ml-auto">
+          {competitorCount} competitors
+        </span>
+      </div>
+      <div className="p-3 space-y-2">
+        {sorted.length === 0 ? (
+          <p className="text-xs text-gray-400 italic text-center py-2">
+            Pool not yet started
+          </p>
+        ) : (
+          sorted.map((m) => (
+            <div key={m.id} className="text-xs">
+              <span className="text-gray-400 mr-2 tabular-nums">R{m.round}</span>
+              <MatchCard match={m} />
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RepechageLane({
+  label,
+  repechage,
+  bronze,
+}: {
+  label: string;
+  repechage: Match | null;
+  bronze: Match | null;
+}) {
+  return (
+    <div className="border border-amber-200 rounded-lg overflow-hidden">
+      <div className="bg-amber-50 px-3 py-2 border-b border-amber-200">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-amber-700">
+          {label}
+        </span>
+      </div>
+      <div className="p-3 space-y-2">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">
+            Repechage
+          </p>
+          <div style={{ width: CARD_W }}>
+            <MatchCard match={repechage} />
+          </div>
+        </div>
+        <div className="text-amber-400 text-center text-xs">↓</div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-amber-600 mb-1">
+            Bronze
+          </p>
+          <div style={{ width: CARD_W }}>
+            <MatchCard match={bronze} />
+          </div>
+        </div>
       </div>
     </div>
   );

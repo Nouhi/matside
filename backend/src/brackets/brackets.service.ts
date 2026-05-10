@@ -9,6 +9,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { generateRoundRobinMatches } from './round-robin.util';
 import { generatePoolsMatches, isPoolsBracketSize } from './pools.util';
 import { generateDoubleRepechageMatches } from './double-repechage.util';
+import {
+  generateGrandSlamMatches,
+  isGrandSlamBracketSize,
+} from './pools-grand-slam.util';
 
 @Injectable()
 export class BracketsService {
@@ -47,9 +51,15 @@ export class BracketsService {
           bracketType = BracketType.ROUND_ROBIN;
         } else if (isPoolsBracketSize(competitorCount)) {
           bracketType = BracketType.POOLS;
+        } else if (isGrandSlamBracketSize(competitorCount)) {
+          // 16+ competitors: IJF Grand Slam format. 4 pools, single-elim
+          // internal, pool winners feed a 4-team knockout, pool finalist-
+          // losers feed a cross-half repechage for two distinct bronze
+          // medals. Replaces DOUBLE_REPECHAGE for new categories.
+          bracketType = BracketType.GRAND_SLAM;
         } else {
-          // 16+ competitors: real IJF double-repechage. Main bracket + 2
-          // repechage paths + 2 bronze fights = 2 distinct bronze medalists.
+          // Legacy fallback (kept so existing DOUBLE_REPECHAGE rows in the
+          // DB continue to work). Auto-assignment no longer reaches here.
           bracketType = BracketType.DOUBLE_REPECHAGE;
         }
 
@@ -99,9 +109,31 @@ export class BracketsService {
           // Knockout matches are NOT generated upfront. They get created by
           // scoreboard.service.advanceWinner once the pool stage completes,
           // because we need actual standings to fill in competitor IDs.
+        } else if (bracketType === BracketType.GRAND_SLAM) {
+          // 4 pools (snake-seeded), single-elim internal. Pool finals feed
+          // a 4-team knockout (SF1 = A vs B, SF2 = C vs D, Final), pool
+          // finalist-losers feed cross-half repechage paths for two
+          // distinct bronze medals. Knockout/repechage/bronze placeholders
+          // are created here with null competitors; scoreboard.service.
+          // advanceWinner fills them as feeders complete.
+          const gsMatches = generateGrandSlamMatches(competitorCount);
+          for (const m of gsMatches) {
+            matchesToCreate.push({
+              round: m.round,
+              poolPosition: m.poolPosition,
+              competitor1Id:
+                m.competitor1Index !== null ? competitorIds[m.competitor1Index] : null,
+              competitor2Id:
+                m.competitor2Index !== null ? competitorIds[m.competitor2Index] : null,
+              phase: m.phase as MatchPhase,
+              poolGroup: m.poolGroup,
+            });
+          }
         } else {
-          // DOUBLE_REPECHAGE (16+ competitors): main bracket + 2 repechage +
-          // 2 bronze placeholder slots.
+          // DOUBLE_REPECHAGE legacy: main bracket + 2 repechage + 2 bronze
+          // placeholder slots. Auto-assignment no longer reaches this branch
+          // (16+ goes to GRAND_SLAM); kept so any existing DB rows still
+          // generate sensibly if regenerated.
           const drMatches = generateDoubleRepechageMatches(competitorCount);
           for (const m of drMatches) {
             matchesToCreate.push({
