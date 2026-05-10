@@ -152,4 +152,112 @@ describe('StandingsService', () => {
       }),
     }));
   });
+
+  describe('GRAND_SLAM standings (1/2/3/3/5/5/7/7)', () => {
+    function gsMatch(
+      c1: string | null,
+      c2: string | null,
+      winner: string | null,
+      phase: string,
+      poolGroup: string | null = null,
+    ) {
+      return {
+        competitor1Id: c1,
+        competitor2Id: c2,
+        winnerId: winner,
+        winMethod: winner ? 'IPPON' : null,
+        status: winner ? 'COMPLETED' : 'SCHEDULED',
+        round: 1,
+        poolPosition: 1,
+        scores: null,
+        phase,
+        poolGroup,
+      };
+    }
+
+    // Names mirror the IJF Grand Slam PDF roughly:
+    //   gold = BYAMBA, silver = ORYN
+    //   bronze = DAVL (top half) + YANG (bottom half)
+    //   5th = SHAMS + JEAN
+    //   7th = SINGH + CARL
+
+    it('returns full 1/2/3/3/5/5/7/7 standings when all knockout matches done', async () => {
+      prisma.competition.findUnique.mockResolvedValue({ id: 'comp-1' });
+      prisma.category.findMany.mockResolvedValue([
+        {
+          id: 'cat-1',
+          name: '-60kg',
+          bracketType: 'GRAND_SLAM',
+          competitors: [
+            'BYAMBA', 'ORYN', 'DAVL', 'YANG', 'SHAMS', 'JEAN', 'SINGH', 'CARL',
+          ].map((id) => competitor(id)),
+          matches: [
+            // Final: BYAMBA beats ORYN
+            gsMatch('BYAMBA', 'ORYN', 'BYAMBA', 'KNOCKOUT_FINAL'),
+            // Bronze TOP: DAVL beats SHAMS (SHAMS came up via TOP repechage)
+            gsMatch('SHAMS', 'DAVL', 'DAVL', 'KNOCKOUT_BRONZE', 'TOP'),
+            // Bronze BOTTOM: YANG beats JEAN (JEAN came up via BOTTOM repechage)
+            gsMatch('JEAN', 'YANG', 'YANG', 'KNOCKOUT_BRONZE', 'BOTTOM'),
+            // Repechage TOP: SHAMS beat SINGH
+            gsMatch('SINGH', 'SHAMS', 'SHAMS', 'REPECHAGE', 'TOP'),
+            // Repechage BOTTOM: JEAN beat CARL
+            gsMatch('CARL', 'JEAN', 'JEAN', 'REPECHAGE', 'BOTTOM'),
+          ],
+        },
+      ]);
+
+      const result = await service.getCompetitionStandings('comp-1');
+      expect(result[0].status).toBe('COMPLETE');
+      const ranks = result[0].standings.map((s) => ({ rank: s.rank, id: s.competitor.id }));
+
+      expect(ranks.find((r) => r.rank === 1)?.id).toBe('BYAMBA');
+      expect(ranks.find((r) => r.rank === 2)?.id).toBe('ORYN');
+      expect(ranks.filter((r) => r.rank === 3).map((r) => r.id).sort()).toEqual(['DAVL', 'YANG']);
+      expect(ranks.filter((r) => r.rank === 5).map((r) => r.id).sort()).toEqual(['JEAN', 'SHAMS']);
+      expect(ranks.filter((r) => r.rank === 7).map((r) => r.id).sort()).toEqual(['CARL', 'SINGH']);
+    });
+
+    it('returns IN_PROGRESS until both bronze fights are complete', async () => {
+      prisma.competition.findUnique.mockResolvedValue({ id: 'comp-1' });
+      prisma.category.findMany.mockResolvedValue([
+        {
+          id: 'cat-1',
+          name: '-60kg',
+          bracketType: 'GRAND_SLAM',
+          competitors: [competitor('BYAMBA'), competitor('ORYN')],
+          matches: [
+            gsMatch('BYAMBA', 'ORYN', 'BYAMBA', 'KNOCKOUT_FINAL'),
+            // Bronze TOP done
+            gsMatch('SHAMS', 'DAVL', 'DAVL', 'KNOCKOUT_BRONZE', 'TOP'),
+            // Bronze BOTTOM still SCHEDULED
+            gsMatch('JEAN', 'YANG', null, 'KNOCKOUT_BRONZE', 'BOTTOM'),
+          ],
+        },
+      ]);
+
+      const result = await service.getCompetitionStandings('comp-1');
+      expect(result[0].status).toBe('IN_PROGRESS');
+    });
+
+    it('reports gold and silver even when bronze fights have not started', async () => {
+      prisma.competition.findUnique.mockResolvedValue({ id: 'comp-1' });
+      prisma.category.findMany.mockResolvedValue([
+        {
+          id: 'cat-1',
+          name: '-60kg',
+          bracketType: 'GRAND_SLAM',
+          competitors: [competitor('BYAMBA'), competitor('ORYN')],
+          matches: [
+            gsMatch('BYAMBA', 'ORYN', 'BYAMBA', 'KNOCKOUT_FINAL'),
+          ],
+        },
+      ]);
+
+      const result = await service.getCompetitionStandings('comp-1');
+      const ranks = result[0].standings.map((s) => ({ rank: s.rank, id: s.competitor.id }));
+      expect(ranks.find((r) => r.rank === 1)?.id).toBe('BYAMBA');
+      expect(ranks.find((r) => r.rank === 2)?.id).toBe('ORYN');
+      expect(ranks.filter((r) => r.rank === 3)).toHaveLength(0);
+    });
+  });
 });

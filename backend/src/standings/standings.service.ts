@@ -31,7 +31,7 @@ export interface StandingEntry {
 export interface CategoryStandings {
   categoryId: string;
   categoryName: string;
-  bracketType: 'ROUND_ROBIN' | 'POOLS' | 'SINGLE_REPECHAGE' | 'DOUBLE_REPECHAGE';
+  bracketType: 'ROUND_ROBIN' | 'POOLS' | 'SINGLE_REPECHAGE' | 'DOUBLE_REPECHAGE' | 'GRAND_SLAM';
   status: 'IN_PROGRESS' | 'COMPLETE' | 'PENDING_PLAYOFF';
   standings: StandingEntry[];
 }
@@ -136,6 +136,24 @@ export class StandingsService {
             tiedWith: r.tiedWith,
           })),
         });
+      } else if (category.bracketType === 'GRAND_SLAM') {
+        const gs = computeGrandSlamStandings(standingMatches);
+        result.push({
+          categoryId: category.id,
+          categoryName: category.name,
+          bracketType: 'GRAND_SLAM',
+          status: gs.status,
+          standings: gs.standings.map((s) => ({
+            rank: s.rank,
+            competitor: competitorRefs.get(s.competitorId) ?? {
+              id: s.competitorId,
+              firstName: '',
+              lastName: '',
+              club: '',
+              athleteId: null,
+            },
+          })),
+        });
       } else {
         const elim = computeEliminationStandings(competitorIds.length, standingMatches);
         result.push({
@@ -159,4 +177,79 @@ export class StandingsService {
 
     return result;
   }
+}
+
+/**
+ * Final standings for the IJF Grand Slam 4-pool format.
+ *
+ *   1st:  KNOCKOUT_FINAL winner
+ *   2nd:  KNOCKOUT_FINAL loser
+ *   3rd:  KNOCKOUT_BRONZE TOP winner + KNOCKOUT_BRONZE BOTTOM winner (2 medals)
+ *   5th:  KNOCKOUT_BRONZE TOP loser + KNOCKOUT_BRONZE BOTTOM loser
+ *   7th:  REPECHAGE TOP loser + REPECHAGE BOTTOM loser
+ *
+ * Pool quarterfinalist losers (those eliminated before the pool final) are
+ * unranked — same as Olympic format. Status reports IN_PROGRESS until both
+ * bronze fights are complete.
+ */
+function computeGrandSlamStandings(matches: StandingMatch[]): {
+  status: 'IN_PROGRESS' | 'COMPLETE';
+  standings: { rank: number; competitorId: string }[];
+} {
+  const standings: { rank: number; competitorId: string }[] = [];
+
+  function loser(m: StandingMatch): string | null {
+    if (!m.winnerId || !m.competitor1Id || !m.competitor2Id) return null;
+    return m.winnerId === m.competitor1Id ? m.competitor2Id : m.competitor1Id;
+  }
+
+  const final = matches.find((m) => m.phase === 'KNOCKOUT_FINAL');
+  const bronzeTop = matches.find(
+    (m) => m.phase === 'KNOCKOUT_BRONZE' && m.poolGroup === 'TOP',
+  );
+  const bronzeBottom = matches.find(
+    (m) => m.phase === 'KNOCKOUT_BRONZE' && m.poolGroup === 'BOTTOM',
+  );
+  const repTop = matches.find(
+    (m) => m.phase === 'REPECHAGE' && m.poolGroup === 'TOP',
+  );
+  const repBottom = matches.find(
+    (m) => m.phase === 'REPECHAGE' && m.poolGroup === 'BOTTOM',
+  );
+
+  // 1st & 2nd
+  if (final?.status === 'COMPLETED' && final.winnerId) {
+    standings.push({ rank: 1, competitorId: final.winnerId });
+    const second = loser(final);
+    if (second) standings.push({ rank: 2, competitorId: second });
+  }
+
+  // 3rd (two)
+  for (const b of [bronzeTop, bronzeBottom]) {
+    if (b?.status === 'COMPLETED' && b.winnerId) {
+      standings.push({ rank: 3, competitorId: b.winnerId });
+    }
+  }
+
+  // 5th (two)
+  for (const b of [bronzeTop, bronzeBottom]) {
+    if (b?.status === 'COMPLETED') {
+      const l = loser(b);
+      if (l) standings.push({ rank: 5, competitorId: l });
+    }
+  }
+
+  // 7th (two)
+  for (const r of [repTop, repBottom]) {
+    if (r?.status === 'COMPLETED') {
+      const l = loser(r);
+      if (l) standings.push({ rank: 7, competitorId: l });
+    }
+  }
+
+  const allBronzeDone =
+    bronzeTop?.status === 'COMPLETED' && bronzeBottom?.status === 'COMPLETED';
+  const status: 'IN_PROGRESS' | 'COMPLETE' = allBronzeDone ? 'COMPLETE' : 'IN_PROGRESS';
+
+  return { status, standings };
 }

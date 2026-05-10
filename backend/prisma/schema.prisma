@@ -102,6 +102,10 @@ enum BracketType {
   POOLS
   SINGLE_REPECHAGE
   DOUBLE_REPECHAGE
+  // IJF Grand Slam format: 4 pools, single-elim internal, pool winners
+  // feed a 4-team knockout, pool finalist-losers fight cross-half
+  // repechage for two distinct bronze medals.
+  GRAND_SLAM
 }
 
 enum MatchPhase {

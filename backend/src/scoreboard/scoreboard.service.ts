@@ -245,6 +245,11 @@ export class ScoreboardService {
       return;
     }
 
+    if (category.bracketType === 'GRAND_SLAM') {
+      await this.advanceWinnerInGrandSlam(completedMatch, winnerId);
+      return;
+    }
+
     // SINGLE_REPECHAGE / legacy: simple slot advancement
     const next = getNextSlot(completedMatch.round, completedMatch.poolPosition);
     const nextMatch = await this.prisma.match.findFirst({
@@ -422,6 +427,174 @@ export class ScoreboardService {
     }
 
     // KNOCKOUT_FINAL and KNOCKOUT_BRONZE are terminal — no further advancement.
+  }
+
+  /**
+   * Grand Slam (4-pool) bracket advancement.
+   *
+   * Routing:
+   *   POOL phase:
+   *     - Within a pool, single-elim. Winner advances via getNextSlot.
+   *     - The pool FINAL is the last round in that pool. Its winner goes
+   *       into the main SF (Pool A/B → SF1, Pool C/D → SF2; Pool A/C
+   *       become competitor1, Pool B/D become competitor2). Its loser
+   *       goes into the same-half repechage (Pool A/C → REP TOP comp1,
+   *       Pool B/D → REP BOTTOM comp1 / TOP comp2 etc.).
+   *
+   *   KNOCKOUT_SF:
+   *     - Winner → FINAL.
+   *     - Loser → BRONZE of OPPOSITE half (cross-half pairing). Goes into
+   *       competitor2 because competitor1 will be the repechage winner.
+   *
+   *   REPECHAGE:
+   *     - Winner → BRONZE of SAME half, competitor1.
+   *
+   *   KNOCKOUT_FINAL / KNOCKOUT_BRONZE: terminal.
+   */
+  private async advanceWinnerInGrandSlam(
+    completedMatch: {
+      id: string;
+      categoryId: string;
+      round: number;
+      poolPosition: number;
+      phase: MatchPhase | null;
+      poolGroup: string | null;
+      competitor1Id: string | null;
+      competitor2Id: string | null;
+    },
+    winnerId: string,
+  ): Promise<void> {
+    const categoryId = completedMatch.categoryId;
+    const phase = completedMatch.phase;
+    const loserId =
+      completedMatch.competitor1Id === winnerId
+        ? completedMatch.competitor2Id
+        : completedMatch.competitor1Id;
+
+    if (phase === MatchPhase.POOL) {
+      // Find this pool's max round to detect "is this the pool final?"
+      const poolMaxRound = await this.prisma.match.findFirst({
+        where: { categoryId, phase: MatchPhase.POOL, poolGroup: completedMatch.poolGroup },
+        orderBy: { round: 'desc' },
+        select: { round: true },
+      });
+      const isPoolFinal =
+        poolMaxRound != null && completedMatch.round === poolMaxRound.round;
+
+      if (!isPoolFinal) {
+        // Internal pool advancement.
+        const next = getNextSlot(completedMatch.round, completedMatch.poolPosition);
+        const nextMatch = await this.prisma.match.findFirst({
+          where: {
+            categoryId,
+            phase: MatchPhase.POOL,
+            poolGroup: completedMatch.poolGroup,
+            round: next.round,
+            poolPosition: next.position,
+          },
+        });
+        if (nextMatch) {
+          await this.prisma.match.update({
+            where: { id: nextMatch.id },
+            data: next.isCompetitor1
+              ? { competitor1: { connect: { id: winnerId } } }
+              : { competitor2: { connect: { id: winnerId } } },
+          });
+        }
+        return;
+      }
+
+      // Pool final completed. Winner → main SF, loser → same-half repechage.
+      const pool = completedMatch.poolGroup; // 'A' | 'B' | 'C' | 'D'
+      // Pool A/B → SF1 (top half); C/D → SF2 (bottom half).
+      const sfPosition = pool === 'A' || pool === 'B' ? 1 : 2;
+      // Pool A/C → competitor1 of their SF; Pool B/D → competitor2.
+      const sfIsC1 = pool === 'A' || pool === 'C';
+      // Pool A/B feed REP TOP; Pool C/D feed REP BOTTOM.
+      const repHalf = pool === 'A' || pool === 'B' ? 'TOP' : 'BOTTOM';
+      // Pool A/C → competitor1 of repechage; Pool B/D → competitor2.
+      const repIsC1 = pool === 'A' || pool === 'C';
+
+      const sfMatch = await this.prisma.match.findFirst({
+        where: { categoryId, phase: MatchPhase.KNOCKOUT_SF, poolPosition: sfPosition },
+      });
+      if (sfMatch) {
+        await this.prisma.match.update({
+          where: { id: sfMatch.id },
+          data: sfIsC1
+            ? { competitor1: { connect: { id: winnerId } } }
+            : { competitor2: { connect: { id: winnerId } } },
+        });
+      }
+
+      if (loserId) {
+        const repMatch = await this.prisma.match.findFirst({
+          where: { categoryId, phase: MatchPhase.REPECHAGE, poolGroup: repHalf },
+        });
+        if (repMatch) {
+          await this.prisma.match.update({
+            where: { id: repMatch.id },
+            data: repIsC1
+              ? { competitor1: { connect: { id: loserId } } }
+              : { competitor2: { connect: { id: loserId } } },
+          });
+        }
+      }
+      return;
+    }
+
+    if (phase === MatchPhase.KNOCKOUT_SF) {
+      // Winner → FINAL. Loser → BRONZE of OPPOSITE half (cross-half), as
+      // competitor2 (competitor1 is reserved for the repechage winner).
+      const isFirstSlot = completedMatch.poolPosition === 1; // SF1 = top half winner
+      const finalMatch = await this.prisma.match.findFirst({
+        where: { categoryId, phase: MatchPhase.KNOCKOUT_FINAL },
+      });
+      if (finalMatch) {
+        await this.prisma.match.update({
+          where: { id: finalMatch.id },
+          data: isFirstSlot
+            ? { competitor1: { connect: { id: winnerId } } }
+            : { competitor2: { connect: { id: winnerId } } },
+        });
+      }
+
+      if (loserId) {
+        // SF1 (top) loser → BRONZE BOTTOM. SF2 (bottom) loser → BRONZE TOP.
+        const oppositeHalf = isFirstSlot ? 'BOTTOM' : 'TOP';
+        const bronzeMatch = await this.prisma.match.findFirst({
+          where: {
+            categoryId,
+            phase: MatchPhase.KNOCKOUT_BRONZE,
+            poolGroup: oppositeHalf,
+          },
+        });
+        if (bronzeMatch) {
+          await this.prisma.match.update({
+            where: { id: bronzeMatch.id },
+            data: { competitor2: { connect: { id: loserId } } },
+          });
+        }
+      }
+      return;
+    }
+
+    if (phase === MatchPhase.REPECHAGE) {
+      // Repechage winner → BRONZE of SAME half, competitor1.
+      const half = completedMatch.poolGroup; // 'TOP' | 'BOTTOM'
+      const bronzeMatch = await this.prisma.match.findFirst({
+        where: { categoryId, phase: MatchPhase.KNOCKOUT_BRONZE, poolGroup: half },
+      });
+      if (bronzeMatch) {
+        await this.prisma.match.update({
+          where: { id: bronzeMatch.id },
+          data: { competitor1: { connect: { id: winnerId } } },
+        });
+      }
+      return;
+    }
+
+    // KNOCKOUT_FINAL / KNOCKOUT_BRONZE are terminal.
   }
 
   /**
