@@ -12,6 +12,7 @@ import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { BracketsService } from '../brackets/brackets.service';
 import { StandingsService } from '../standings/standings.service';
+import { SchedulerService } from '../scoreboard/scheduler.service';
 
 // Public spectator-facing endpoints. No auth, no PII, light cache headers
 // so a spectator URL going viral on Instagram doesn't melt the API. Every
@@ -70,6 +71,7 @@ export class PublicCompetitionsController {
     private prisma: PrismaService,
     private bracketsService: BracketsService,
     private standingsService: StandingsService,
+    private schedulerService: SchedulerService,
   ) {}
 
   @Get(':id')
@@ -176,6 +178,10 @@ export class PublicCompetitionsController {
       },
     });
 
+    // Pre-compute ETAs for the whole competition once. Single cached
+    // walk over all mats; per-match lookup below is O(1).
+    const etas = await this.schedulerService.computeEtas(id);
+
     const enriched = await Promise.all(
       mats.map(async (mat) => {
         const currentMatch = mat.currentMatchId
@@ -218,8 +224,13 @@ export class PublicCompetitionsController {
           id: mat.id,
           number: mat.number,
           categories: mat.categories,
-          currentMatch,
-          nextMatches,
+          currentMatch: currentMatch
+            ? { ...currentMatch, etaSeconds: etas.get(currentMatch.id) ?? null }
+            : null,
+          nextMatches: nextMatches.map((m) => ({
+            ...m,
+            etaSeconds: etas.get(m.id) ?? null,
+          })),
         };
       }),
     );

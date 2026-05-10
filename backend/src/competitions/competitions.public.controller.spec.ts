@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
 import { BracketsService } from '../brackets/brackets.service';
 import { StandingsService } from '../standings/standings.service';
+import { SchedulerService } from '../scoreboard/scheduler.service';
 import { PublicCompetitionsController } from './competitions.public.controller';
 
 describe('PublicCompetitionsController — PII / secret leakage boundary', () => {
@@ -14,6 +15,7 @@ describe('PublicCompetitionsController — PII / secret leakage boundary', () =>
   };
   let bracketsService: { getBrackets: jest.Mock };
   let standingsService: { getCompetitionStandings: jest.Mock };
+  let schedulerService: { computeEtas: jest.Mock; getEta: jest.Mock; invalidateCache: jest.Mock };
 
   function makeRes() {
     const res: Partial<Response> & { _headers: Record<string, string>; _status: number; _ended: boolean } = {
@@ -52,6 +54,11 @@ describe('PublicCompetitionsController — PII / secret leakage boundary', () =>
     };
     bracketsService = { getBrackets: jest.fn() };
     standingsService = { getCompetitionStandings: jest.fn() };
+    schedulerService = {
+      computeEtas: jest.fn().mockResolvedValue(new Map()),
+      getEta: jest.fn(),
+      invalidateCache: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [PublicCompetitionsController],
@@ -59,6 +66,7 @@ describe('PublicCompetitionsController — PII / secret leakage boundary', () =>
         { provide: PrismaService, useValue: prisma },
         { provide: BracketsService, useValue: bracketsService },
         { provide: StandingsService, useValue: standingsService },
+        { provide: SchedulerService, useValue: schedulerService },
       ],
     }).compile();
 

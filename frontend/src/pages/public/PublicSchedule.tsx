@@ -19,6 +19,9 @@ interface ScheduledMatch {
   category: { id: string; name: string };
   competitor1: PublicCompetitor | null;
   competitor2: PublicCompetitor | null;
+  // Computed-on-read ETA in seconds. 0 means "now / currently fighting".
+  // null means the match isn't in any mat queue yet.
+  etaSeconds: number | null;
 }
 
 interface MatSchedule {
@@ -128,13 +131,53 @@ function MatCard({ mat }: { mat: MatSchedule }) {
 function MatchRow({ match }: { match: ScheduledMatch }) {
   return (
     <div>
-      <p className="text-xs text-gray-500 truncate">{match.category.name}</p>
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-xs text-gray-500 truncate">{match.category.name}</p>
+        <EtaPill etaSeconds={match.etaSeconds} status={match.status} />
+      </div>
       <p className="text-sm font-semibold text-gray-900 truncate">
         <CompetitorName competitor={match.competitor1} />
         <span className="text-gray-400 mx-2 font-normal">vs</span>
         <CompetitorName competitor={match.competitor2} />
       </p>
     </div>
+  );
+}
+
+// Render the computed-on-read ETA next to each match. ACTIVE → "now",
+// 0 → "starting", < 90s → "<2 min", else minutes/hours. We deliberately
+// round generously — the backend ticks by Competition.matchDuration not
+// real elapsed time, so spurious precision would mislead.
+function formatEta(seconds: number): string {
+  if (seconds <= 0) return 'starting';
+  if (seconds < 90) return '< 2 min';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `~${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remMin = minutes % 60;
+  if (remMin === 0) return `~${hours}h`;
+  return `~${hours}h ${remMin}m`;
+}
+
+function EtaPill({
+  etaSeconds,
+  status,
+}: {
+  etaSeconds: number | null;
+  status?: string;
+}) {
+  if (status === 'ACTIVE') {
+    return (
+      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 shrink-0">
+        live
+      </span>
+    );
+  }
+  if (etaSeconds == null) return null;
+  return (
+    <span className="text-[10px] font-mono text-gray-400 tabular-nums shrink-0">
+      {formatEta(etaSeconds)}
+    </span>
   );
 }
 
