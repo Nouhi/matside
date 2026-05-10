@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
@@ -7,6 +7,7 @@ interface PublicCompetitor {
   firstName: string;
   lastName: string;
   club: string;
+  athleteId: string | null;
 }
 
 interface ScheduledMatch {
@@ -125,17 +126,31 @@ function MatCard({ mat }: { mat: MatSchedule }) {
 }
 
 function MatchRow({ match }: { match: ScheduledMatch }) {
-  function name(c: PublicCompetitor | null): string {
-    return c ? `${c.lastName.toUpperCase()} ${c.firstName[0] ?? ''}.` : 'TBD';
-  }
   return (
     <div>
       <p className="text-xs text-gray-500 truncate">{match.category.name}</p>
       <p className="text-sm font-semibold text-gray-900 truncate">
-        {name(match.competitor1)}
+        <CompetitorName competitor={match.competitor1} />
         <span className="text-gray-400 mx-2 font-normal">vs</span>
-        {name(match.competitor2)}
+        <CompetitorName competitor={match.competitor2} />
       </p>
     </div>
   );
+}
+
+function CompetitorName({ competitor }: { competitor: PublicCompetitor | null }) {
+  if (!competitor) return <span className="text-gray-400 italic">TBD</span>;
+  const display = `${competitor.lastName.toUpperCase()} ${competitor.firstName[0] ?? ''}.`;
+  if (competitor.athleteId) {
+    return (
+      <Link
+        to={`/athlete/${competitor.athleteId}`}
+        className="hover:underline"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {display}
+      </Link>
+    );
+  }
+  return <span>{display}</span>;
 }

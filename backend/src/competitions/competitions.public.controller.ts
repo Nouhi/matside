@@ -26,6 +26,7 @@ interface PublicCompetitor {
   firstName: string;
   lastName: string;
   club: string;
+  athleteId: string | null;
 }
 
 function sanitizeCompetitor(c: {
@@ -33,9 +34,16 @@ function sanitizeCompetitor(c: {
   firstName: string;
   lastName: string;
   club: string;
+  athleteId?: string | null;
 } | null | undefined): PublicCompetitor | null {
   if (!c) return null;
-  return { id: c.id, firstName: c.firstName, lastName: c.lastName, club: c.club };
+  return {
+    id: c.id,
+    firstName: c.firstName,
+    lastName: c.lastName,
+    club: c.club,
+    athleteId: c.athleteId ?? null,
+  };
 }
 
 function etagFor(payload: unknown): string {
@@ -179,8 +187,8 @@ export class PublicCompetitionsController {
                 poolPosition: true,
                 status: true,
                 category: { select: { id: true, name: true } },
-                competitor1: { select: { id: true, firstName: true, lastName: true, club: true } },
-                competitor2: { select: { id: true, firstName: true, lastName: true, club: true } },
+                competitor1: { select: { id: true, firstName: true, lastName: true, club: true, athleteId: true } },
+                competitor2: { select: { id: true, firstName: true, lastName: true, club: true, athleteId: true } },
               },
             })
           : null;

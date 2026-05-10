@@ -14,6 +14,7 @@ export interface CompetitorRef {
   firstName: string;
   lastName: string;
   club: string;
+  athleteId: string | null;
 }
 
 export interface StandingEntry {
@@ -66,6 +67,7 @@ export class StandingsService {
           firstName: c.firstName,
           lastName: c.lastName,
           club: c.club,
+          athleteId: c.athleteId ?? null,
         });
       }
 
@@ -97,6 +99,7 @@ export class StandingsService {
               firstName: '',
               lastName: '',
               club: '',
+              athleteId: null,
             },
           })),
         });
@@ -123,6 +126,7 @@ export class StandingsService {
               firstName: '',
               lastName: '',
               club: '',
+              athleteId: null,
             },
             wins: r.wins,
             losses: r.losses,
@@ -146,6 +150,7 @@ export class StandingsService {
               firstName: '',
               lastName: '',
               club: '',
+              athleteId: null,
             },
           })),
         });

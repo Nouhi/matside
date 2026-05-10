@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Trophy, Medal } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -9,6 +9,7 @@ interface CompetitorRef {
   firstName: string;
   lastName: string;
   club: string;
+  athleteId?: string | null;
 }
 
 interface StandingEntry {
@@ -167,13 +168,23 @@ function Podium({ entry }: { entry: StandingEntry }) {
         ? 'text-gray-400'
         : 'text-orange-700';
 
+  const display = `${entry.competitor.lastName.toUpperCase()} ${entry.competitor.firstName}`;
+  const nameNode = entry.competitor.athleteId ? (
+    <Link
+      to={`/athlete/${entry.competitor.athleteId}`}
+      className="font-semibold text-gray-900 truncate hover:underline"
+    >
+      {display}
+    </Link>
+  ) : (
+    <span className="font-semibold text-gray-900 truncate">{display}</span>
+  );
+
   return (
     <div className="flex items-center gap-3">
       <Icon size={20} className={colorCls} />
       <div className="flex-1 min-w-0">
-        <p className="font-semibold text-gray-900 truncate">
-          {entry.competitor.lastName.toUpperCase()} {entry.competitor.firstName}
-        </p>
+        <p className="truncate">{nameNode}</p>
         {entry.competitor.club && (
           <p className="text-xs text-gray-500 truncate">{entry.competitor.club}</p>
         )}
@@ -188,13 +199,20 @@ function Podium({ entry }: { entry: StandingEntry }) {
 }
 
 function RestRow({ entry }: { entry: StandingEntry }) {
+  const display = `${entry.competitor.lastName.toUpperCase()} ${entry.competitor.firstName}`;
   return (
     <div className="flex items-center gap-3 text-sm py-1">
       <span className="text-gray-400 font-medium tabular-nums w-6 shrink-0">
         {entry.rank}.
       </span>
       <span className="flex-1 min-w-0 truncate text-gray-700">
-        {entry.competitor.lastName.toUpperCase()} {entry.competitor.firstName}
+        {entry.competitor.athleteId ? (
+          <Link to={`/athlete/${entry.competitor.athleteId}`} className="hover:underline">
+            {display}
+          </Link>
+        ) : (
+          display
+        )}
         {entry.competitor.club && (
           <span className="text-gray-400 ml-2">{entry.competitor.club}</span>
         )}

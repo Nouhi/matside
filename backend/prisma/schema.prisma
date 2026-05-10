@@ -107,6 +107,40 @@ enum MatchPhase {
   REPECHAGE
 }
 
+// ─── Athlete (persistent identity across tournaments) ───
+//
+// One row per real-world person. Foundation for cross-tournament history,
+// coach accounts ("show me all my athletes"), late-add by lookup, and
+// federation rankings.
+//
+// A Competitor is a per-competition registration; an Athlete is the person
+// that registration represents. New registrations auto-link to an existing
+// Athlete by email (when present) or create a fresh one. athleteId on
+// Competitor stays nullable during the transition so existing rows keep
+// working until backfilled.
+
+model Athlete {
+  id            String     @id @default(cuid())
+  firstName     String
+  lastName      String
+  dateOfBirth   DateTime
+  gender        Gender
+  // Email is one natural dedup key across tournaments. Nullable so
+  // walk-up registrants without email don't all collide on empty string.
+  email         String?    @unique
+  // Federation license number — more stable than email (an athlete keeps
+  // it when they switch clubs or email providers). Used as a secondary
+  // auto-match key when present. Same nullable+unique pattern.
+  licenseNumber String?    @unique
+
+  competitors Competitor[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([lastName, firstName])
+}
+
 // ─── Competitor ───
 
 model Competitor {
@@ -115,6 +149,8 @@ model Competitor {
   competition        Competition        @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   categoryId         String?
   category           Category?          @relation(fields: [categoryId], references: [id])
+  athleteId          String?
+  athlete            Athlete?           @relation(fields: [athleteId], references: [id])
   firstName          String
   lastName           String
   email              String             @default("")
@@ -133,6 +169,7 @@ model Competitor {
 
   @@index([competitionId])
   @@index([categoryId])
+  @@index([athleteId])
 }
 
 enum Belt {

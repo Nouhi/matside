@@ -57,6 +57,11 @@ export class RegisterCompetitorDto {
   @IsString()
   @MaxLength(100)
   club?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  licenseNumber?: string;
 }
 
 export class UpdateStatusDto {
@@ -88,6 +93,7 @@ export class CompetitorsController {
       gender: dto.gender,
       weight: dto.weight,
       club: dto.club,
+      licenseNumber: dto.licenseNumber,
     });
   }
 

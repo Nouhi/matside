@@ -36,6 +36,7 @@ export function RegisterPage() {
   const [weight, setWeight] = useState('');
   const [belt, setBelt] = useState('WHITE');
   const [club, setClub] = useState('');
+  const [licenseNumber, setLicenseNumber] = useState('');
   const [competition, setCompetition] = useState<PublicCompetition | null>(null);
 
   useEffect(() => {
@@ -70,6 +71,7 @@ export function RegisterPage() {
         weight: parseFloat(weight),
         belt,
         club,
+        licenseNumber: licenseNumber.trim() || undefined,
       });
       setSubmitted(true);
       toast('Registration complete!', 'success');
@@ -233,6 +235,27 @@ export function RegisterPage() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                 />
               </div>
+            </div>
+
+            <div>
+              <label htmlFor="licenseNumber" className="block text-sm font-medium text-gray-700 mb-1">
+                License number{' '}
+                <span className="text-xs font-normal text-gray-400">(optional)</span>
+              </label>
+              <input
+                id="licenseNumber"
+                type="text"
+                inputMode="text"
+                autoComplete="off"
+                maxLength={50}
+                value={licenseNumber}
+                onChange={(e) => setLicenseNumber(e.target.value)}
+                placeholder="e.g., USAJ-12345"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Federation/national ID. Used to recognize you across tournaments.
+              </p>
             </div>
 
             {projection && (

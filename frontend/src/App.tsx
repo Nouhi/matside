@@ -13,6 +13,7 @@ import { PublicOverview } from '@/pages/public/PublicOverview';
 import { PublicBrackets } from '@/pages/public/PublicBrackets';
 import { PublicSchedule } from '@/pages/public/PublicSchedule';
 import { PublicResults } from '@/pages/public/PublicResults';
+import { AthleteProfilePage } from '@/pages/public/AthleteProfilePage';
 import { ToastContainer } from '@/components/ToastContainer';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -55,6 +56,7 @@ function App() {
           <Route path="schedule" element={<PublicSchedule />} />
           <Route path="results" element={<PublicResults />} />
         </Route>
+        <Route path="/athlete/:id" element={<AthleteProfilePage />} />
       </Routes>
     </>
   );

@@ -206,6 +206,7 @@ describe('PublicCompetitionsController — PII / secret leakage boundary', () =>
               dateOfBirth: new Date('1998-03-12'),
               registrationStatus: 'WEIGHED_IN',
               weight: 72.5,
+              athleteId: 'a1',
             },
           ],
           matches: [
@@ -226,6 +227,7 @@ describe('PublicCompetitionsController — PII / secret leakage boundary', () =>
                 club: 'Tokyo',
                 email: 'hiroshi@example.com',
                 dateOfBirth: new Date('1998-03-12'),
+                athleteId: 'a1',
               },
               competitor2: null,
               winner: null,
@@ -247,6 +249,8 @@ describe('PublicCompetitionsController — PII / secret leakage boundary', () =>
       expect(json).toContain('Hiroshi');
       expect(json).toContain('Tanaka');
       expect(json).toContain('Tokyo');
+      // athleteId is exposed so the spectator UI can link to the profile.
+      expect(json).toContain('"athleteId":"a1"');
     });
   });
 });

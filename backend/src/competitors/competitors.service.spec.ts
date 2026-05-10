@@ -6,6 +6,7 @@ import {
 import { Gender, RegistrationStatus } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
+import { AthletesService } from '../athletes/athletes.service';
 import { CompetitorsService } from './competitors.service';
 
 describe('CompetitorsService', () => {
@@ -19,7 +20,9 @@ describe('CompetitorsService', () => {
       findUnique: jest.Mock;
       update: jest.Mock;
     };
+    $transaction: jest.Mock;
   };
+  let athletesService: { findOrCreateForRegistration: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
@@ -31,12 +34,21 @@ describe('CompetitorsService', () => {
         findUnique: jest.fn(),
         update: jest.fn(),
       },
+      // The register() flow is wrapped in a transaction; we just call the
+      // callback inline with the prisma mock so existing tests continue to
+      // work without each test having to know about the wrapper.
+      $transaction: jest.fn(async (cb) => cb(prisma)),
+    };
+
+    athletesService = {
+      findOrCreateForRegistration: jest.fn(async () => ({ id: 'athlete-1' })),
     };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CompetitorsService,
         { provide: PrismaService, useValue: prisma },
+        { provide: AthletesService, useValue: athletesService },
       ],
     }).compile();
 
