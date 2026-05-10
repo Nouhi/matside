@@ -29,6 +29,26 @@ export class CategoriesService {
       );
     }
 
+    // Critical-gap guard: a "regenerate" while any bracket is in motion
+    // (any non-SCHEDULED match exists) would cascade-delete that match's
+    // category and silently corrupt the bracket. WEIGH_IN status is some
+    // protection (no matches start until ACTIVE) but a misclick after a
+    // status revert or future state-machine bug shouldn't be able to wipe
+    // recorded results. Refuse explicitly.
+    const inFlight = await this.prisma.match.findFirst({
+      where: {
+        category: { competitionId },
+        status: { not: 'SCHEDULED' },
+      },
+      select: { id: true },
+    });
+    if (inFlight) {
+      throw new BadRequestException(
+        'Cannot regenerate categories: at least one match has already started ' +
+          'or completed. Doing so would erase recorded results.',
+      );
+    }
+
     return this.prisma.$transaction(async (tx) => {
       await tx.competitor.updateMany({
         where: { competitionId },

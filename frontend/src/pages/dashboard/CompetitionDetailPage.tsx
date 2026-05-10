@@ -2,10 +2,12 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
-import { MapPin, Calendar, Users, Copy, Check, Layers, Swords, Share2 } from 'lucide-react';
-import { useState } from 'react';
+import { MapPin, Calendar, Users, Copy, Check, Layers, Swords, Share2, Scale, AlertTriangle } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { BracketView } from '@/components/BracketView';
 import { StandingsTab } from '@/components/StandingsTab';
+import { WeighInModal } from '@/components/WeighInModal';
+import type { IjfProjection } from '@/lib/ijf';
 
 interface Competition {
   id: string;
@@ -13,13 +15,6 @@ interface Competition {
   date: string;
   location: string;
   status: string;
-}
-
-interface IjfProjection {
-  age: number;
-  ageGroup: string;
-  weightLabel: string | null;
-  categoryName: string | null;
 }
 
 interface Competitor {
@@ -130,7 +125,7 @@ const REG_STATUS_STYLES: Record<string, string> = {
 export function CompetitionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'competitors' | 'categories' | 'brackets' | 'mats' | 'standings'>('competitors');
+  const [activeTab, setActiveTab] = useState<'competitors' | 'weigh-in' | 'categories' | 'brackets' | 'mats' | 'standings'>('competitors');
 
   const { data: competition, isLoading: loadingComp } = useQuery<Competition>({
     queryKey: ['competition', id],
@@ -197,6 +192,33 @@ export function CompetitionDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['competitors', id] });
       toast('Competitor withdrawn', 'success');
+    },
+    onError: (err: Error) => toast(err.message),
+  });
+
+  const recordWeightMutation = useMutation({
+    mutationFn: ({ competitorId, weight }: { competitorId: string; weight: number }) =>
+      api.patch<{ bumped: boolean; projection: { weightLabel: string | null } }>(
+        `/competitions/${id}/competitors/${competitorId}/weigh-in`,
+        { weight },
+      ),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['competitors', id] });
+      if (data.bumped) {
+        toast(`Bumped to ${data.projection.weightLabel}`, 'success');
+      } else {
+        toast('Weigh-in recorded', 'success');
+      }
+    },
+    onError: (err: Error) => toast(err.message),
+  });
+
+  const disqualifyMutation = useMutation({
+    mutationFn: (competitorId: string) =>
+      api.patch(`/competitions/${id}/competitors/${competitorId}/disqualify`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['competitors', id] });
+      toast('Disqualified', 'success');
     },
     onError: (err: Error) => toast(err.message),
   });
@@ -336,23 +358,33 @@ export function CompetitionDetailPage() {
       <div className="bg-white rounded-lg border border-gray-200">
         <div className="border-b border-gray-200">
           <nav className="flex">
-            {(['competitors', 'categories', 'brackets', 'mats', 'standings'] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === tab
-                    ? 'border-gray-900 text-gray-900'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {tab === 'competitors' && `Competitors (${competitors.length})`}
-                {tab === 'categories' && `Categories (${categories.length})`}
-                {tab === 'brackets' && 'Brackets'}
-                {tab === 'mats' && `Mats (${mats.length})`}
-                {tab === 'standings' && 'Standings'}
-              </button>
-            ))}
+            {(['competitors', 'weigh-in', 'categories', 'brackets', 'mats', 'standings'] as const).map((tab) => {
+              // Weigh-in tab is contextual: only show during WEIGH_IN status.
+              if (tab === 'weigh-in' && competition.status !== 'WEIGH_IN') return null;
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === tab
+                      ? 'border-gray-900 text-gray-900'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {tab === 'competitors' && `Competitors (${competitors.length})`}
+                  {tab === 'weigh-in' && (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Scale size={14} />
+                      Weigh-in
+                    </span>
+                  )}
+                  {tab === 'categories' && `Categories (${categories.length})`}
+                  {tab === 'brackets' && 'Brackets'}
+                  {tab === 'mats' && `Mats (${mats.length})`}
+                  {tab === 'standings' && 'Standings'}
+                </button>
+              );
+            })}
           </nav>
         </div>
 
@@ -364,6 +396,18 @@ export function CompetitionDetailPage() {
             onUpdateWeight={(cId, w) => updateWeightMutation.mutate({ competitorId: cId, weight: w })}
             onWithdraw={(cId) => withdrawMutation.mutate(cId)}
             weighInPending={weighInMutation.isPending}
+          />
+        )}
+
+        {activeTab === 'weigh-in' && competition.status === 'WEIGH_IN' && (
+          <WeighInTab
+            competitors={competitors}
+            competitionDate={competition.date}
+            onRecordWeight={(cId, w) =>
+              recordWeightMutation.mutate({ competitorId: cId, weight: w })
+            }
+            onDisqualify={(cId) => disqualifyMutation.mutate(cId)}
+            isPending={recordWeightMutation.isPending || disqualifyMutation.isPending}
           />
         )}
 
@@ -524,6 +568,214 @@ function CompetitorsTab({
         </tbody>
       </table>
     </div>
+  );
+}
+
+type WeighInFilter = 'PENDING' | 'WEIGHED_IN' | 'WITHDRAWN' | 'ALL';
+
+function WeighInTab({
+  competitors,
+  competitionDate,
+  onRecordWeight,
+  onDisqualify,
+  isPending,
+}: {
+  competitors: Competitor[];
+  competitionDate: string;
+  onRecordWeight: (id: string, weight: number) => void;
+  onDisqualify: (id: string) => void;
+  isPending: boolean;
+}) {
+  const [filter, setFilter] = useState<WeighInFilter>('PENDING');
+  const [activeCompetitorId, setActiveCompetitorId] = useState<string | null>(null);
+
+  const counts = useMemo(
+    () => ({
+      total: competitors.length,
+      pending: competitors.filter((c) => c.registrationStatus === 'REGISTERED').length,
+      weighedIn: competitors.filter((c) => c.registrationStatus === 'WEIGHED_IN').length,
+      withdrawn: competitors.filter((c) => c.registrationStatus === 'WITHDRAWN').length,
+    }),
+    [competitors],
+  );
+
+  const filtered = useMemo(() => {
+    if (filter === 'ALL') return competitors;
+    if (filter === 'PENDING')
+      return competitors.filter((c) => c.registrationStatus === 'REGISTERED');
+    if (filter === 'WEIGHED_IN')
+      return competitors.filter((c) => c.registrationStatus === 'WEIGHED_IN');
+    return competitors.filter((c) => c.registrationStatus === 'WITHDRAWN');
+  }, [competitors, filter]);
+
+  const activeCompetitor = useMemo(
+    () => competitors.find((c) => c.id === activeCompetitorId) ?? null,
+    [competitors, activeCompetitorId],
+  );
+
+  const progress = counts.total > 0 ? Math.round((counts.weighedIn / counts.total) * 100) : 0;
+
+  if (competitors.length === 0) {
+    return (
+      <div className="p-6 text-center text-gray-500">
+        No competitors registered yet.
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="px-6 pt-5 pb-4 border-b border-gray-200">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-gray-700">
+              {counts.weighedIn} of {counts.total} weighed in
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {counts.pending} pending
+              {counts.withdrawn > 0 && ` · ${counts.withdrawn} withdrawn`}
+            </p>
+          </div>
+          <span className="text-2xl font-bold tabular-nums text-gray-900">
+            {progress}%
+          </span>
+        </div>
+        <div className="mt-2 h-2 w-full bg-gray-200 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-emerald-500 transition-all"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <div className="flex flex-wrap gap-2 mt-4">
+          <FilterChip active={filter === 'PENDING'} onClick={() => setFilter('PENDING')}>
+            Pending ({counts.pending})
+          </FilterChip>
+          <FilterChip active={filter === 'WEIGHED_IN'} onClick={() => setFilter('WEIGHED_IN')}>
+            Weighed in ({counts.weighedIn})
+          </FilterChip>
+          <FilterChip active={filter === 'WITHDRAWN'} onClick={() => setFilter('WITHDRAWN')}>
+            Withdrawn ({counts.withdrawn})
+          </FilterChip>
+          <FilterChip active={filter === 'ALL'} onClick={() => setFilter('ALL')}>
+            All ({counts.total})
+          </FilterChip>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        {filtered.length === 0 ? (
+          <p className="p-6 text-center text-sm text-gray-500 italic">
+            No competitors in this filter.
+          </p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 bg-gray-50">
+                <th className="text-left px-6 py-3 font-medium text-gray-500">Name</th>
+                <th className="text-left px-6 py-3 font-medium text-gray-500">Club</th>
+                <th className="text-left px-6 py-3 font-medium text-gray-500">Registered</th>
+                <th className="text-left px-6 py-3 font-medium text-gray-500">IJF Class</th>
+                <th className="text-left px-6 py-3 font-medium text-gray-500">Status</th>
+                <th className="text-right px-6 py-3 font-medium text-gray-500">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((c) => (
+                <tr
+                  key={c.id}
+                  className={`border-b border-gray-100 ${
+                    c.registrationStatus === 'WITHDRAWN' ? 'opacity-50' : ''
+                  }`}
+                >
+                  <td className="px-6 py-3 font-medium text-gray-900">
+                    {c.lastName.toUpperCase()} {c.firstName}
+                  </td>
+                  <td className="px-6 py-3 text-gray-600">{c.club}</td>
+                  <td className="px-6 py-3 text-gray-600 tabular-nums">
+                    {c.weight ? `${c.weight}kg` : <span className="text-gray-400 italic">—</span>}
+                  </td>
+                  <td className="px-6 py-3">
+                    {c.projection?.weightLabel ? (
+                      <span className="font-mono text-xs">
+                        {c.projection.ageGroup} {c.projection.weightLabel}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400 italic text-xs">no class</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-3">
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                        REG_STATUS_STYLES[c.registrationStatus] ||
+                        'bg-gray-100 text-gray-700'
+                      }`}
+                    >
+                      {c.registrationStatus}
+                    </span>
+                  </td>
+                  <td className="px-6 py-3 text-right">
+                    {c.registrationStatus !== 'WITHDRAWN' ? (
+                      <button
+                        onClick={() => setActiveCompetitorId(c.id)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors bg-gray-900 text-white hover:bg-gray-800"
+                      >
+                        <Scale size={12} />
+                        {c.registrationStatus === 'WEIGHED_IN' ? 'Re-weigh' : 'Record weight'}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-gray-400 italic inline-flex items-center gap-1">
+                        <AlertTriangle size={12} />
+                        Withdrawn
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {activeCompetitor && (
+        <WeighInModal
+          competitor={activeCompetitor}
+          competitionDate={competitionDate}
+          onClose={() => setActiveCompetitorId(null)}
+          onWeighIn={(weight) => {
+            onRecordWeight(activeCompetitor.id, weight);
+            setActiveCompetitorId(null);
+          }}
+          onDisqualify={() => {
+            onDisqualify(activeCompetitor.id);
+            setActiveCompetitorId(null);
+          }}
+          isPending={isPending}
+        />
+      )}
+    </div>
+  );
+}
+
+function FilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+        active
+          ? 'bg-gray-900 text-white'
+          : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-400'
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 

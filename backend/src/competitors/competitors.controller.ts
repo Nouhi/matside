@@ -133,4 +133,29 @@ export class CompetitorsController {
     const user = req.user as { sub: string; email: string };
     return this.competitorsService.withdraw(id, user.sub);
   }
+
+  // Atomic weigh-in: records weight, sets WEIGHED_IN, returns IJF projection
+  // before/after so the UI can show "bumped from -73 to -81kg".
+  @Patch(':id/weigh-in')
+  @UseGuards(JwtAuthGuard)
+  weighIn(
+    @Req() req: express.Request,
+    @Param('id') id: string,
+    @Body() dto: UpdateWeightDto,
+  ) {
+    const user = req.user as { sub: string; email: string };
+    return this.competitorsService.recordWeight(id, user.sub, dto.weight);
+  }
+
+  // Organizer-driven disqualification (distinct from withdraw, which is
+  // pre-bracket self-removal). Works at any competition status.
+  @Patch(':id/disqualify')
+  @UseGuards(JwtAuthGuard)
+  disqualify(
+    @Req() req: express.Request,
+    @Param('id') id: string,
+  ) {
+    const user = req.user as { sub: string; email: string };
+    return this.competitorsService.disqualify(id, user.sub);
+  }
 }
