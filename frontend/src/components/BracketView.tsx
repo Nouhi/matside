@@ -937,10 +937,174 @@ function MatchCard({ match }: { match: Match | null }) {
   );
 }
 
-// IJF Grand Slam 4-pool view. Layout:
-//   Left column: 4 stacked pool blocks (A/B/C/D), each a mini-bracket
-//   Middle column: main 4-team knockout (SF1, SF2, FINAL)
-//   Right column: repechage TOP/BOTTOM + bronze TOP/BOTTOM
+// ─── IJF Grand Slam 4-pool view ──────────────────────────────────────────
+//
+// Mirrors the IJF Grand Slam draw layout (see Qazaqstan Barysy 2026 PDF):
+//
+//   ┌─────────────────────────────────────────────────────────┐
+//   │ POOL A [red]  ──tree──→ winner ─╮                       │
+//   │                                 ├─ SF1 ──╮              │
+//   │ POOL B [blue] ──tree──→ winner ─╯        │              │
+//   │                                          ├─ FINAL → 🥇  │
+//   │ POOL C [yellow]──tree──→ winner ─╮       │              │
+//   │                                  ├─ SF2 ─╯              │
+//   │ POOL D [green]──tree──→ winner ──╯                      │
+//   └─────────────────────────────────────────────────────────┘
+//   ┌─────────────────────────────────────────────────────────┐
+//   │ REPECHAGE (full-width, below)                           │
+//   │   Pool A loser ╮                                        │
+//   │                ├─ REP TOP ─╮                            │
+//   │   Pool B loser ╯           ├─ BRONZE TOP                │
+//   │             SF2 loser ─────╯                            │
+//   │   (mirror for BOTTOM half)                              │
+//   └─────────────────────────────────────────────────────────┘
+//
+// Dimensions tuned to fit ~1280px wide layout with 4 pools of up to 6
+// competitors each. SVG connectors flow rightward from pool finals into
+// the SF column, then into the Final.
+
+const GS_CARD_W = 184;
+const GS_CARD_H = 40;
+const GS_COL_GAP = 32;
+const GS_ROW_GAP = 8;
+const GS_POOL_VGAP = 32;
+const GS_STRIPE_W = 4;
+const GS_LABEL_W = 36;
+const GS_MAIN_GAP = 64; // gap between pools and SF column
+// Top padding inside the main canvas so the round/SF/Final labels — which
+// sit ABOVE their cards — don't clip against the canvas edge.
+const GS_HEADER_H = 24;
+
+const POOL_COLORS: Record<
+  'A' | 'B' | 'C' | 'D',
+  { stripe: string; tint: string; text: string; ring: string }
+> = {
+  A: { stripe: 'bg-red-500',     tint: 'bg-red-50/30',     text: 'text-red-700',     ring: 'ring-red-200' },
+  B: { stripe: 'bg-blue-500',    tint: 'bg-blue-50/30',    text: 'text-blue-700',    ring: 'ring-blue-200' },
+  C: { stripe: 'bg-amber-500',   tint: 'bg-amber-50/30',   text: 'text-amber-700',   ring: 'ring-amber-200' },
+  D: { stripe: 'bg-emerald-500', tint: 'bg-emerald-50/30', text: 'text-emerald-700', ring: 'ring-emerald-200' },
+};
+
+interface Connector {
+  x1: number; y1: number; x2: number; y2: number;
+}
+
+interface PoolLayout {
+  poolGroup: 'A' | 'B' | 'C' | 'D';
+  competitorCount: number;
+  rounds: number;
+  width: number;
+  height: number;
+  cards: { round: number; pos: number; x: number; y: number; centerY: number; match: Match | null }[];
+  connectors: Connector[];
+  finalCardCenterY: number; // y of the pool-final card (where the line exits to the right)
+  finalCardX: number; // right edge x of the pool-final card
+}
+
+function nextPow2(n: number): number {
+  let p = 1;
+  while (p < n) p *= 2;
+  return p;
+}
+
+// Compute a single pool's bracket-tree layout. Cards positioned with (0,0)
+// as the top-left of this pool's drawing area; caller offsets by the
+// pool's stack y when composing.
+function computePoolLayout(
+  poolGroup: 'A' | 'B' | 'C' | 'D',
+  poolMatches: Match[],
+): PoolLayout | null {
+  if (poolMatches.length === 0) return null;
+
+  const competitorIds = new Set<string>();
+  for (const m of poolMatches) {
+    if (m.competitor1?.id) competitorIds.add(m.competitor1.id);
+    if (m.competitor2?.id) competitorIds.add(m.competitor2.id);
+  }
+  const competitorCount = competitorIds.size;
+  if (competitorCount < 2) return null;
+
+  const bracketSize = nextPow2(competitorCount);
+  const rounds = Math.log2(bracketSize);
+
+  const matchAt = new Map<string, Match>();
+  for (const m of poolMatches) {
+    matchAt.set(`${m.round}:${m.poolPosition}`, m);
+  }
+
+  const colWidth = GS_CARD_W + GS_COL_GAP;
+  const r1Slots = bracketSize / 2;
+  const height = r1Slots * (GS_CARD_H + GS_ROW_GAP) - GS_ROW_GAP;
+  const width = rounds * colWidth - GS_COL_GAP;
+
+  const roundCards: { round: number; pos: number; x: number; y: number; centerY: number; match: Match | null }[][] = [];
+  for (let r = 0; r < rounds; r++) {
+    const slotsInRound = bracketSize / Math.pow(2, r + 1);
+    const cards: typeof roundCards[number] = [];
+    if (r === 0) {
+      for (let i = 0; i < slotsInRound; i++) {
+        const y = i * (GS_CARD_H + GS_ROW_GAP);
+        cards.push({
+          round: 1,
+          pos: i + 1,
+          x: 0,
+          y,
+          centerY: y + GS_CARD_H / 2,
+          match: matchAt.get(`1:${i + 1}`) ?? null,
+        });
+      }
+    } else {
+      const prev = roundCards[r - 1];
+      for (let i = 0; i < slotsInRound; i++) {
+        const top = prev[i * 2];
+        const bot = prev[i * 2 + 1];
+        const midY = (top.centerY + bot.centerY) / 2;
+        cards.push({
+          round: r + 1,
+          pos: i + 1,
+          x: r * colWidth,
+          y: midY - GS_CARD_H / 2,
+          centerY: midY,
+          match: matchAt.get(`${r + 1}:${i + 1}`) ?? null,
+        });
+      }
+    }
+    roundCards.push(cards);
+  }
+
+  const connectors: Connector[] = [];
+  for (let r = 0; r < rounds - 1; r++) {
+    const cur = roundCards[r];
+    const nxt = roundCards[r + 1];
+    for (let i = 0; i < nxt.length; i++) {
+      const top = cur[i * 2];
+      const bot = cur[i * 2 + 1];
+      const target = nxt[i];
+      const exitX = top.x + GS_CARD_W;
+      const midX = exitX + GS_COL_GAP / 2;
+      const entryX = target.x;
+      connectors.push({ x1: exitX, y1: top.centerY, x2: midX, y2: top.centerY });
+      connectors.push({ x1: exitX, y1: bot.centerY, x2: midX, y2: bot.centerY });
+      connectors.push({ x1: midX, y1: top.centerY, x2: midX, y2: bot.centerY });
+      connectors.push({ x1: midX, y1: target.centerY, x2: entryX, y2: target.centerY });
+    }
+  }
+
+  const finalCard = roundCards[rounds - 1][0];
+
+  return {
+    poolGroup,
+    competitorCount,
+    rounds,
+    width,
+    height,
+    cards: roundCards.flat(),
+    connectors,
+    finalCardCenterY: finalCard.centerY,
+    finalCardX: finalCard.x + GS_CARD_W,
+  };
+}
+
 function GrandSlamBracketView({ category }: { category: Category }) {
   const matches = category.matches ?? [];
 
@@ -958,140 +1122,584 @@ function GrandSlamBracketView({ category }: { category: Category }) {
     (m) => m.phase === 'KNOCKOUT_BRONZE' && m.poolGroup === 'BOTTOM',
   );
 
-  const poolGroups: ('A' | 'B' | 'C' | 'D')[] = ['A', 'B', 'C', 'D'];
+  const layout = useMemo(() => {
+    const poolGroups: ('A' | 'B' | 'C' | 'D')[] = ['A', 'B', 'C', 'D'];
+    const pools: (PoolLayout | null)[] = poolGroups.map((g) =>
+      computePoolLayout(
+        g,
+        poolMatches.filter((m) => m.poolGroup === g),
+      ),
+    );
+    const realPools = pools.filter((p): p is PoolLayout => p !== null);
+    if (realPools.length === 0) return null;
+
+    const poolWidth = Math.max(...realPools.map((p) => p.width));
+    // Stack pool Y offsets:
+    const poolYOffsets: number[] = [];
+    let acc = 0;
+    for (let i = 0; i < pools.length; i++) {
+      poolYOffsets.push(acc);
+      const h = pools[i]?.height ?? 0;
+      acc += h + GS_POOL_VGAP;
+    }
+    const stackHeight = acc - GS_POOL_VGAP;
+
+    // Main bracket positions (right of pools).
+    const sfX = GS_LABEL_W + poolWidth + GS_MAIN_GAP;
+    const finalX = sfX + GS_CARD_W + GS_COL_GAP;
+
+    // SF1 = midpoint of pool A final and pool B final centers.
+    // SF2 = midpoint of pool C final and pool D final centers.
+    function midOfPair(aIdx: number, bIdx: number): number | null {
+      const a = pools[aIdx];
+      const b = pools[bIdx];
+      if (!a || !b) return null;
+      return (
+        (poolYOffsets[aIdx] + a.finalCardCenterY +
+          poolYOffsets[bIdx] + b.finalCardCenterY) / 2
+      );
+    }
+    const sf1Y = midOfPair(0, 1);
+    const sf2Y = midOfPair(2, 3);
+
+    const sfCards: { x: number; y: number; centerY: number; match: Match | null; pos: 1 | 2 }[] = [];
+    if (sf1Y != null) {
+      sfCards.push({
+        x: sfX, y: sf1Y - GS_CARD_H / 2, centerY: sf1Y,
+        match: sfMatches.find((m) => m.poolPosition === 1) ?? null,
+        pos: 1,
+      });
+    }
+    if (sf2Y != null) {
+      sfCards.push({
+        x: sfX, y: sf2Y - GS_CARD_H / 2, centerY: sf2Y,
+        match: sfMatches.find((m) => m.poolPosition === 2) ?? null,
+        pos: 2,
+      });
+    }
+
+    let finalCard: { x: number; y: number; centerY: number } | null = null;
+    if (sf1Y != null && sf2Y != null) {
+      const finalY = (sf1Y + sf2Y) / 2;
+      finalCard = { x: finalX, y: finalY - GS_CARD_H / 2, centerY: finalY };
+    }
+
+    // Connector lines: pool finals → SFs → Final.
+    const mainConnectors: Connector[] = [];
+    for (let i = 0; i < pools.length; i++) {
+      const p = pools[i];
+      if (!p) continue;
+      const exitX = GS_LABEL_W + p.finalCardX;
+      const exitY = poolYOffsets[i] + p.finalCardCenterY;
+      const sfTarget = i < 2 ? sfCards[0] : sfCards[1];
+      if (!sfTarget) continue;
+      const midX = exitX + (sfX - exitX) / 2;
+      mainConnectors.push({ x1: exitX, y1: exitY, x2: midX, y2: exitY });
+      mainConnectors.push({ x1: midX, y1: exitY, x2: midX, y2: sfTarget.centerY });
+      mainConnectors.push({ x1: midX, y1: sfTarget.centerY, x2: sfX, y2: sfTarget.centerY });
+    }
+    if (finalCard && sfCards.length === 2) {
+      const exitX = sfX + GS_CARD_W;
+      const midX = exitX + GS_COL_GAP / 2;
+      mainConnectors.push({ x1: exitX, y1: sfCards[0].centerY, x2: midX, y2: sfCards[0].centerY });
+      mainConnectors.push({ x1: exitX, y1: sfCards[1].centerY, x2: midX, y2: sfCards[1].centerY });
+      mainConnectors.push({ x1: midX, y1: sfCards[0].centerY, x2: midX, y2: sfCards[1].centerY });
+      mainConnectors.push({ x1: midX, y1: finalCard.centerY, x2: finalX, y2: finalCard.centerY });
+    }
+
+    const totalWidth = finalCard ? finalX + GS_CARD_W : sfX + GS_CARD_W;
+    const totalHeight = stackHeight;
+
+    return {
+      pools,
+      poolYOffsets,
+      stackHeight,
+      poolWidth,
+      sfCards,
+      finalCard,
+      mainConnectors,
+      totalWidth,
+      totalHeight,
+    };
+  }, [poolMatches, sfMatches, finalMatch]);
+
+  if (!layout) {
+    return (
+      <div className="p-6 text-center text-gray-500 text-sm">
+        Pool brackets not generated yet.
+      </div>
+    );
+  }
+
+  // Total drawing height includes the header reserve so labels above cards
+  // (R1, R2, SF, Final) render fully inside the canvas instead of clipping.
+  const canvasHeight = layout.totalHeight + GS_HEADER_H;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      {/* LEFT: pool mini-brackets */}
-      <div className="space-y-4">
-        {poolGroups.map((g) => (
-          <PoolMiniBracket
-            key={g}
-            poolGroup={g}
-            matches={poolMatches.filter((m) => m.poolGroup === g)}
-          />
-        ))}
+    <div className="space-y-8">
+      {/* Format badge tells the viewer what they're looking at — there are
+          three different bracket formats in the app and they look very
+          different from each other. */}
+      <div className="flex items-center gap-2 text-xs">
+        <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-100 text-slate-700 font-semibold uppercase tracking-wider">
+          IJF Grand Slam · 4 pools
+        </span>
+        <span className="text-gray-400">single-elim per pool · cross-half repechage · two bronzes</span>
       </div>
 
-      {/* MIDDLE: main 4-team knockout */}
-      <div>
-        <h4 className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-3">
-          Main Bracket
-        </h4>
-        <div className="space-y-4">
-          <KnockoutColumn label="Semi-finals">
-            {sfMatches.map((m) => (
-              <KnockoutCard key={m.id} match={m} title={`SF ${m.poolPosition}`} />
+      {/* MAIN: pools + 4-team knockout, all in one connected SVG-overlaid canvas */}
+      <div className="overflow-x-auto pb-2">
+        <div
+          className="relative"
+          style={{ width: layout.totalWidth, height: canvasHeight }}
+        >
+          {/* Per-pool background tint — visually groups each pool block. */}
+          {layout.pools.map((p, idx) => {
+            if (!p) return null;
+            const colors = POOL_COLORS[p.poolGroup];
+            return (
+              <div
+                key={`pool-${p.poolGroup}-tint`}
+                className={`absolute rounded-md ${colors.tint}`}
+                style={{
+                  left: GS_LABEL_W - 6,
+                  top: GS_HEADER_H + layout.poolYOffsets[idx] - 6,
+                  width: layout.poolWidth + 12,
+                  height: p.height + 12,
+                }}
+              />
+            );
+          })}
+
+          <svg
+            className="absolute inset-0 pointer-events-none"
+            width={layout.totalWidth}
+            height={canvasHeight}
+          >
+            {/* Pool internal connectors */}
+            {layout.pools.map((p, idx) =>
+              p?.connectors.map((c, i) => (
+                <line
+                  key={`p${idx}c${i}`}
+                  x1={GS_LABEL_W + c.x1}
+                  y1={GS_HEADER_H + layout.poolYOffsets[idx] + c.y1}
+                  x2={GS_LABEL_W + c.x2}
+                  y2={GS_HEADER_H + layout.poolYOffsets[idx] + c.y2}
+                  stroke="#cbd5e1"
+                  strokeWidth={1.5}
+                />
+              )),
+            )}
+            {/* Pools → SF → Final connectors (slightly darker — flow lines) */}
+            {layout.mainConnectors.map((c, i) => (
+              <line
+                key={`mc${i}`}
+                x1={c.x1}
+                y1={GS_HEADER_H + c.y1}
+                x2={c.x2}
+                y2={GS_HEADER_H + c.y2}
+                stroke="#94a3b8"
+                strokeWidth={1.5}
+              />
             ))}
-          </KnockoutColumn>
-          <KnockoutColumn label="Final">
-            <KnockoutCard match={finalMatch ?? null} title="Final" gold />
-          </KnockoutColumn>
+          </svg>
+
+          {/* Pool stripes + vertical labels — using writing-mode for reliable
+              vertical text rendering instead of CSS rotate. */}
+          {layout.pools.map((p, idx) => {
+            if (!p) return null;
+            const colors = POOL_COLORS[p.poolGroup];
+            return (
+              <div
+                key={`pool-${p.poolGroup}-label`}
+                className="absolute"
+                style={{
+                  left: 0,
+                  top: GS_HEADER_H + layout.poolYOffsets[idx],
+                  width: GS_LABEL_W,
+                  height: p.height,
+                }}
+              >
+                <div
+                  className={`absolute left-0 top-0 bottom-0 rounded-l-md ${colors.stripe}`}
+                  style={{ width: GS_STRIPE_W }}
+                />
+                <div
+                  className={`absolute inset-0 flex items-center justify-center ${colors.text}`}
+                  style={{
+                    paddingLeft: GS_STRIPE_W + 2,
+                    fontWeight: 800,
+                    fontSize: 14,
+                    letterSpacing: '0.2em',
+                    writingMode: 'vertical-rl',
+                    transform: 'rotate(180deg)',
+                  }}
+                >
+                  POOL {p.poolGroup}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Pool match cards */}
+          {layout.pools.map((p, idx) => {
+            if (!p) return null;
+            return p.cards.map((c) => (
+              <div
+                key={`pool-${p.poolGroup}-${c.round}-${c.pos}`}
+                className="absolute"
+                style={{
+                  left: GS_LABEL_W + c.x,
+                  top: GS_HEADER_H + layout.poolYOffsets[idx] + c.y,
+                  width: GS_CARD_W,
+                  height: GS_CARD_H,
+                }}
+              >
+                <MatchCard match={c.match} />
+              </div>
+            ));
+          })}
+
+          {/* Round labels above each pool's columns. Only show on the first
+              pool to keep the canvas clean. Now sit fully inside the canvas
+              thanks to GS_HEADER_H. */}
+          {layout.pools[0] &&
+            Array.from({ length: layout.pools[0].rounds }).map((_, r) => {
+              const colWidth = GS_CARD_W + GS_COL_GAP;
+              return (
+                <div
+                  key={`r-label-${r}`}
+                  className="absolute text-[10px] font-bold text-gray-500 uppercase tracking-wider"
+                  style={{
+                    left: GS_LABEL_W + r * colWidth,
+                    top: 4,
+                    width: GS_CARD_W,
+                    textAlign: 'center',
+                  }}
+                >
+                  Round {r + 1}
+                </div>
+              );
+            })}
+
+          {/* SF cards with title labels INSIDE the canvas */}
+          {layout.sfCards.map((c) => (
+            <div
+              key={`sf-${c.pos}`}
+              className="absolute"
+              style={{
+                left: c.x,
+                top: GS_HEADER_H + c.y,
+                width: GS_CARD_W,
+                height: GS_CARD_H,
+              }}
+            >
+              <MatchCard match={c.match} />
+            </div>
+          ))}
+          {layout.sfCards.map((c) => (
+            <div
+              key={`sf-${c.pos}-label`}
+              className="absolute text-[10px] font-bold uppercase tracking-wider text-gray-500"
+              style={{
+                left: c.x,
+                top: GS_HEADER_H + c.y - 14,
+                width: GS_CARD_W,
+              }}
+            >
+              Semi-Final {c.pos}
+            </div>
+          ))}
+
+          {/* Final card with gold ring on winner side, bordered amber */}
+          {layout.finalCard && (
+            <>
+              <div
+                className="absolute"
+                style={{
+                  left: layout.finalCard.x,
+                  top: GS_HEADER_H + layout.finalCard.y,
+                  width: GS_CARD_W,
+                  height: GS_CARD_H,
+                }}
+              >
+                <FinalMatchCard match={finalMatch ?? null} />
+              </div>
+              <div
+                className="absolute text-[10px] font-bold uppercase tracking-wider text-amber-700 inline-flex items-center gap-1"
+                style={{
+                  left: layout.finalCard.x,
+                  top: GS_HEADER_H + layout.finalCard.y - 14,
+                  width: GS_CARD_W,
+                }}
+              >
+                <span>Final</span>
+                <span className="text-amber-500">·</span>
+                <span>Gold / Silver</span>
+              </div>
+            </>
+          )}
+
+          {/* "Round 1" header label for SF/Final isn't needed since they're
+              separate; the per-card labels above carry the meaning. */}
         </div>
       </div>
 
-      {/* RIGHT: repechage + bronze, two cross-half lanes */}
-      <div>
-        <h4 className="text-xs font-bold uppercase tracking-widest text-amber-700 mb-3">
-          Repechage + Bronze
-        </h4>
-        <div className="space-y-4">
-          <RepechageLane
-            label="Top half"
-            repechage={repTop ?? null}
-            bronze={bronzeTop ?? null}
-          />
-          <RepechageLane
-            label="Bottom half"
-            repechage={repBottom ?? null}
-            bronze={bronzeBottom ?? null}
-          />
-        </div>
-      </div>
+      {/* REPECHAGE: full-width, below the main bracket */}
+      <RepechageGrandSlam
+        repTop={repTop ?? null}
+        repBottom={repBottom ?? null}
+        bronzeTop={bronzeTop ?? null}
+        bronzeBottom={bronzeBottom ?? null}
+        sfTop={sfMatches.find((m) => m.poolPosition === 1) ?? null}
+        sfBottom={sfMatches.find((m) => m.poolPosition === 2) ?? null}
+      />
     </div>
   );
 }
 
-function PoolMiniBracket({
-  poolGroup,
-  matches,
-}: {
-  poolGroup: 'A' | 'B' | 'C' | 'D';
-  matches: Match[];
-}) {
-  const sorted = [...matches].sort(
-    (a, b) => a.round - b.round || a.poolPosition - b.poolPosition,
-  );
-  const competitorCount = new Set(
-    sorted.flatMap((m) => [m.competitor1?.id, m.competitor2?.id].filter(Boolean)),
-  ).size;
+// Final match card with subtle gold ring on the winner row. Used only for
+// KNOCKOUT_FINAL because the visual emphasis is meaningful there — gold/silver
+// are the medal outcomes.
+function FinalMatchCard({ match }: { match: Match | null }) {
+  const c1 = match?.competitor1;
+  const c2 = match?.competitor2;
+  const winner = match?.winner;
+  const isCompleted = match?.status === 'COMPLETED';
+  const isC1Winner = !!(winner && c1 && winner.id === c1.id);
+  const isC2Winner = !!(winner && c2 && winner.id === c2.id);
+  const c1Name = c1 ? `${c1.lastName.toUpperCase()} ${c1.firstName[0] ?? ''}.` : null;
+  const c2Name = c2 ? `${c2.lastName.toUpperCase()} ${c2.firstName[0] ?? ''}.` : null;
 
   return (
-    <div className="border border-gray-200 rounded-lg overflow-hidden">
-      <div className="bg-gray-100 px-3 py-2 border-b border-gray-200 flex items-baseline gap-2">
-        <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
-          Pool
-        </span>
-        <span className="text-2xl font-black text-gray-900 leading-none">
-          {poolGroup}
-        </span>
-        <span className="text-xs text-gray-500 ml-auto">
-          {competitorCount} competitors
+    <div
+      className={`w-full h-full rounded-md border text-xs overflow-hidden flex flex-col ${
+        isCompleted
+          ? 'border-amber-400 bg-amber-50/60 shadow-sm shadow-amber-100'
+          : 'border-amber-300 bg-amber-50/30'
+      }`}
+    >
+      <div
+        className={`flex items-center gap-1 px-2 flex-1 min-h-0 ${
+          isC1Winner ? 'bg-amber-200/60' : isCompleted ? 'bg-slate-50' : ''
+        }`}
+      >
+        {isC1Winner && <span className="text-amber-600 text-[10px]">🥇</span>}
+        {isC2Winner && isCompleted && <span className="text-slate-400 text-[10px]">🥈</span>}
+        <span
+          className={`truncate flex-1 ${
+            !c1Name
+              ? 'text-gray-400 italic'
+              : isC1Winner
+                ? 'font-bold text-amber-900'
+                : isCompleted
+                  ? 'text-gray-500'
+                  : 'text-gray-700'
+          }`}
+        >
+          {c1Name ?? 'TBD'}
         </span>
       </div>
-      <div className="p-3 space-y-2">
-        {sorted.length === 0 ? (
-          <p className="text-xs text-gray-400 italic text-center py-2">
-            Pool not yet started
-          </p>
-        ) : (
-          sorted.map((m) => (
-            <div key={m.id} className="text-xs">
-              <span className="text-gray-400 mr-2 tabular-nums">R{m.round}</span>
-              <MatchCard match={m} />
-            </div>
-          ))
-        )}
+      <div className="border-t border-amber-200" />
+      <div
+        className={`flex items-center gap-1 px-2 flex-1 min-h-0 ${
+          isC2Winner ? 'bg-amber-200/60' : isCompleted ? 'bg-slate-50' : ''
+        }`}
+      >
+        {isC2Winner && <span className="text-amber-600 text-[10px]">🥇</span>}
+        {isC1Winner && isCompleted && <span className="text-slate-400 text-[10px]">🥈</span>}
+        <span
+          className={`truncate flex-1 ${
+            !c2Name
+              ? 'text-gray-400 italic'
+              : isC2Winner
+                ? 'font-bold text-amber-900'
+                : isCompleted
+                  ? 'text-gray-500'
+                  : 'text-gray-700'
+          }`}
+        >
+          {c2Name ?? 'TBD'}
+        </span>
       </div>
     </div>
   );
 }
 
-function RepechageLane({
+// Repechage rendered as two full-width tree fragments. Each half:
+//
+//   pool-finalist-loser ╮
+//                       ├── REP ─╮
+//   pool-finalist-loser ╯        ├── BRONZE
+//             SF loser ──────────╯
+//
+function RepechageGrandSlam({
+  repTop,
+  repBottom,
+  bronzeTop,
+  bronzeBottom,
+  sfTop,
+  sfBottom,
+}: {
+  repTop: Match | null;
+  repBottom: Match | null;
+  bronzeTop: Match | null;
+  bronzeBottom: Match | null;
+  sfTop: Match | null;
+  sfBottom: Match | null;
+}) {
+  function name(c: Competitor | null | undefined): string | null {
+    return c ? `${c.lastName.toUpperCase()} ${c.firstName[0] ?? ''}.` : null;
+  }
+  // SF "loser" name is informational — we show it below the bronze card to
+  // make the cross-half feed visible. The match itself doesn't need cards
+  // for those because they already render in the main bracket.
+
+  return (
+    <div className="border-t border-amber-200 pt-4">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-xs font-bold uppercase tracking-widest text-amber-700">
+          Repechage + Bronze (cross-half)
+        </span>
+        <div className="h-px flex-1 bg-amber-200" />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <RepHalfTree
+          label="Top half"
+          rep={repTop}
+          bronze={bronzeTop}
+          crossSfLoserName={name(
+            sfBottom?.winner && sfBottom.competitor1?.id === sfBottom.winner.id
+              ? sfBottom.competitor2
+              : sfBottom?.competitor1,
+          )}
+        />
+        <RepHalfTree
+          label="Bottom half"
+          rep={repBottom}
+          bronze={bronzeBottom}
+          crossSfLoserName={name(
+            sfTop?.winner && sfTop.competitor1?.id === sfTop.winner.id
+              ? sfTop.competitor2
+              : sfTop?.competitor1,
+          )}
+        />
+      </div>
+    </div>
+  );
+}
+
+function RepHalfTree({
   label,
-  repechage,
+  rep,
   bronze,
+  crossSfLoserName,
 }: {
   label: string;
-  repechage: Match | null;
+  rep: Match | null;
   bronze: Match | null;
+  crossSfLoserName: string | null;
 }) {
+  const REP_CARD_W = 184;
+  const REP_CARD_H = 40;
+  const REP_GAP = 56;
+  const REP_VGAP = 16;
+  const HEADER_H = 18;
+
+  // Layout: three cards laid out in a tree:
+  //   REP card (top-left) ──┐
+  //                          ├── BRONZE card (right)
+  //   SF-loser feeder card (bottom-left) ──┘
+  //
+  // Vertical positioning: REP centerY = HEADER_H + CARD_H/2.
+  //                        Feeder centerY = HEADER_H + CARD_H*1.5 + VGAP.
+  //                        Bronze centerY = midpoint of REP and feeder.
+  const repX = 0;
+  const feederX = 0;
+  const bronzeX = REP_CARD_W + REP_GAP;
+
+  const repY = HEADER_H;
+  const feederY = HEADER_H + REP_CARD_H + REP_VGAP;
+  const repCenterY = repY + REP_CARD_H / 2;
+  const feederCenterY = feederY + REP_CARD_H / 2;
+  const bronzeCenterY = (repCenterY + feederCenterY) / 2;
+  const bronzeY = bronzeCenterY - REP_CARD_H / 2;
+
+  const totalW = bronzeX + REP_CARD_W;
+  const totalH = feederY + REP_CARD_H + 8;
+
+  const exitRepX = repX + REP_CARD_W;
+  const exitFeederX = feederX + REP_CARD_W;
+  const midX = exitRepX + REP_GAP / 2;
+
   return (
-    <div className="border border-amber-200 rounded-lg overflow-hidden">
-      <div className="bg-amber-50 px-3 py-2 border-b border-amber-200">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-amber-700">
-          {label}
+    <div className="border border-amber-200 rounded-lg bg-amber-50/30 p-4">
+      <div className="text-[11px] font-bold uppercase tracking-widest text-amber-700 mb-3">
+        {label}
+      </div>
+      <div className="relative" style={{ width: totalW, height: totalH }}>
+        <svg className="absolute inset-0 pointer-events-none" width={totalW} height={totalH}>
+          <line x1={exitRepX}    y1={repCenterY}    x2={midX}    y2={repCenterY}    stroke="#f59e0b" strokeWidth={1.5} />
+          <line x1={exitFeederX} y1={feederCenterY} x2={midX}    y2={feederCenterY} stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="3 3" />
+          <line x1={midX}        y1={repCenterY}    x2={midX}    y2={feederCenterY} stroke="#f59e0b" strokeWidth={1.5} />
+          <line x1={midX}        y1={bronzeCenterY} x2={bronzeX} y2={bronzeCenterY} stroke="#f59e0b" strokeWidth={1.5} />
+        </svg>
+
+        <div
+          className="absolute text-[10px] font-bold uppercase tracking-wider text-amber-600"
+          style={{ left: repX, top: repY - HEADER_H + 2, width: REP_CARD_W }}
+        >
+          Repechage
+        </div>
+        <div className="absolute" style={{ left: repX, top: repY, width: REP_CARD_W, height: REP_CARD_H }}>
+          <MatchCard match={rep} />
+        </div>
+
+        <div
+          className="absolute text-[10px] font-bold uppercase tracking-wider text-amber-600/70"
+          style={{ left: feederX, top: feederY - HEADER_H + 2, width: REP_CARD_W }}
+        >
+          Cross-half SF loser
+        </div>
+        <div
+          className="absolute"
+          style={{ left: feederX, top: feederY, width: REP_CARD_W, height: REP_CARD_H }}
+        >
+          <FeederCard name={crossSfLoserName} />
+        </div>
+
+        <div
+          className="absolute text-[10px] font-bold uppercase tracking-wider text-amber-700 inline-flex items-center gap-1"
+          style={{ left: bronzeX, top: bronzeY - HEADER_H + 2, width: REP_CARD_W }}
+        >
+          <span>🥉</span>
+          <span>Bronze</span>
+        </div>
+        <div
+          className="absolute"
+          style={{ left: bronzeX, top: bronzeY, width: REP_CARD_W, height: REP_CARD_H }}
+        >
+          <MatchCard match={bronze} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Visual placeholder card representing a competitor that flows in from
+// elsewhere in the bracket (cross-half SF loser feeding bronze). Dashed
+// border distinguishes it from a real match card.
+function FeederCard({ name }: { name: string | null }) {
+  return (
+    <div className="w-full h-full rounded-md border border-dashed border-amber-300 bg-white/60 flex items-center px-2 text-xs">
+      {name ? (
+        <span className="text-amber-900 truncate">{name}</span>
+      ) : (
+        <span className="text-amber-600/60 italic uppercase tracking-wider text-[10px]">
+          awaiting SF result
         </span>
-      </div>
-      <div className="p-3 space-y-2">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">
-            Repechage
-          </p>
-          <div style={{ width: CARD_W }}>
-            <MatchCard match={repechage} />
-          </div>
-        </div>
-        <div className="text-amber-400 text-center text-xs">↓</div>
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-wider text-amber-600 mb-1">
-            Bronze
-          </p>
-          <div style={{ width: CARD_W }}>
-            <MatchCard match={bronze} />
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
