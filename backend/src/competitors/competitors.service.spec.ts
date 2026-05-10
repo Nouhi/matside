@@ -20,6 +20,7 @@ describe('CompetitorsService', () => {
       findUnique: jest.Mock;
       update: jest.Mock;
     };
+    match: { findFirst: jest.Mock };
     $transaction: jest.Mock;
   };
   let athletesService: { findOrCreateForRegistration: jest.Mock };
@@ -34,11 +35,12 @@ describe('CompetitorsService', () => {
         findUnique: jest.fn(),
         update: jest.fn(),
       },
+      match: { findFirst: jest.fn() },
       // The register() flow is wrapped in a transaction; we just call the
       // callback inline with the prisma mock so existing tests continue to
       // work without each test having to know about the wrapper.
       $transaction: jest.fn(async (cb) => cb(prisma)),
-    };
+    } as typeof prisma & { match: { findFirst: jest.Mock } };
 
     athletesService = {
       findOrCreateForRegistration: jest.fn(async () => ({ id: 'athlete-1' })),
@@ -198,6 +200,161 @@ describe('CompetitorsService', () => {
       await expect(
         service.updateStatus('c-1', 'org-1', RegistrationStatus.WEIGHED_IN),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('recordWeight', () => {
+    const baseCompetitor = {
+      id: 'c-1',
+      firstName: 'Hatami',
+      lastName: 'M',
+      email: '',
+      dateOfBirth: new Date('1995-01-01'),
+      gender: Gender.MALE,
+      weight: 72,
+      categoryId: null as string | null,
+      category: null as { id: string; name: string } | null,
+      competition: {
+        id: 'comp-1',
+        organizerId: 'org-1',
+        status: 'WEIGH_IN' as const,
+        date: new Date('2026-06-15'),
+      },
+    };
+
+    it('records weight, sets WEIGHED_IN, nulls categoryId, returns bumped projection', async () => {
+      // Pre-existing weight 72 → -73kg. New weight 75 → -81kg. Should be bumped.
+      prisma.competitor.findUnique.mockResolvedValue(baseCompetitor);
+      prisma.competitor.update.mockResolvedValue({
+        ...baseCompetitor,
+        weight: 75,
+        categoryId: null,
+        registrationStatus: RegistrationStatus.WEIGHED_IN,
+      });
+
+      const result = await service.recordWeight('c-1', 'org-1', 75);
+
+      expect(prisma.competitor.update).toHaveBeenCalledWith({
+        where: { id: 'c-1' },
+        data: {
+          weight: 75,
+          categoryId: null,
+          registrationStatus: RegistrationStatus.WEIGHED_IN,
+        },
+      });
+      expect(result.bumped).toBe(true);
+      expect(result.previousProjection.weightLabel).toBe('-73kg');
+      expect(result.projection.weightLabel).toBe('-81kg');
+    });
+
+    it('does not flag bump when new weight stays in same IJF class', async () => {
+      prisma.competitor.findUnique.mockResolvedValue(baseCompetitor);
+      prisma.competitor.update.mockResolvedValue({
+        ...baseCompetitor,
+        weight: 72.5,
+      });
+
+      const result = await service.recordWeight('c-1', 'org-1', 72.5);
+
+      expect(result.bumped).toBe(false);
+      expect(result.previousProjection.weightLabel).toBe('-73kg');
+      expect(result.projection.weightLabel).toBe('-73kg');
+    });
+
+    it('REFUSES when competition is ACTIVE', async () => {
+      prisma.competitor.findUnique.mockResolvedValue({
+        ...baseCompetitor,
+        competition: { ...baseCompetitor.competition, status: 'ACTIVE' as const },
+      });
+
+      await expect(service.recordWeight('c-1', 'org-1', 75)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.competitor.update).not.toHaveBeenCalled();
+    });
+
+    it('REFUSES when competitor’s category has a non-SCHEDULED match (silent corruption guard)', async () => {
+      prisma.competitor.findUnique.mockResolvedValue({
+        ...baseCompetitor,
+        categoryId: 'cat-1',
+        category: { id: 'cat-1', name: '-73kg' },
+      });
+      prisma.match.findFirst.mockResolvedValue({ id: 'm-active' });
+
+      await expect(service.recordWeight('c-1', 'org-1', 75)).rejects.toThrow(
+        /matches have started/i,
+      );
+      expect(prisma.competitor.update).not.toHaveBeenCalled();
+    });
+
+    it('passes when competitor’s category has only SCHEDULED matches', async () => {
+      prisma.competitor.findUnique.mockResolvedValue({
+        ...baseCompetitor,
+        categoryId: 'cat-1',
+        category: { id: 'cat-1', name: '-73kg' },
+      });
+      prisma.match.findFirst.mockResolvedValue(null);
+      prisma.competitor.update.mockResolvedValue({
+        ...baseCompetitor,
+        weight: 75,
+        categoryId: null,
+      });
+
+      await expect(service.recordWeight('c-1', 'org-1', 75)).resolves.toBeDefined();
+      expect(prisma.competitor.update).toHaveBeenCalled();
+    });
+
+    it('rejects with ForbiddenException for the wrong organizer', async () => {
+      prisma.competitor.findUnique.mockResolvedValue({
+        ...baseCompetitor,
+        competition: { ...baseCompetitor.competition, organizerId: 'other-org' },
+      });
+
+      await expect(service.recordWeight('c-1', 'org-1', 75)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+  });
+
+  describe('disqualify', () => {
+    it('marks WITHDRAWN without nulling categoryId (preserves bracket position)', async () => {
+      prisma.competitor.findUnique.mockResolvedValue({
+        id: 'c-1',
+        categoryId: 'cat-1',
+        competition: { organizerId: 'org-1' },
+      });
+      prisma.competitor.update.mockResolvedValue({
+        id: 'c-1',
+        registrationStatus: RegistrationStatus.WITHDRAWN,
+      });
+
+      await service.disqualify('c-1', 'org-1');
+
+      expect(prisma.competitor.update).toHaveBeenCalledWith({
+        where: { id: 'c-1' },
+        data: { registrationStatus: RegistrationStatus.WITHDRAWN },
+      });
+      // Importantly: NOT { categoryId: null } — leaves competitor in their
+      // bracket so existing matches resolve as walkovers.
+    });
+
+    it('rejects with ForbiddenException for the wrong organizer', async () => {
+      prisma.competitor.findUnique.mockResolvedValue({
+        id: 'c-1',
+        competition: { organizerId: 'other-org' },
+      });
+
+      await expect(service.disqualify('c-1', 'org-1')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('rejects with NotFoundException when missing', async () => {
+      prisma.competitor.findUnique.mockResolvedValue(null);
+
+      await expect(service.disqualify('missing', 'org-1')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 });
