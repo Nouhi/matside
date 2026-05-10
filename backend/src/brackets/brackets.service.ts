@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -13,21 +12,18 @@ import {
   generateGrandSlamMatches,
   isGrandSlamBracketSize,
 } from './pools-grand-slam.util';
+import { requireCompetitionAccess } from '../competitions/competition-access.util';
 
 @Injectable()
 export class BracketsService {
   constructor(private prisma: PrismaService) {}
 
   async generateBrackets(competitionId: string, organizerId: string) {
-    const competition = await this.prisma.competition.findUnique({
-      where: { id: competitionId },
-    });
-    if (!competition) {
-      throw new NotFoundException('Competition not found');
-    }
-    if (competition.organizerId !== organizerId) {
-      throw new ForbiddenException();
-    }
+    const competition = await requireCompetitionAccess(
+      this.prisma,
+      competitionId,
+      organizerId,
+    );
     if (competition.status !== 'WEIGH_IN' && competition.status !== 'ACTIVE') {
       throw new BadRequestException(
         'Competition must be in WEIGH_IN or ACTIVE status to generate brackets',

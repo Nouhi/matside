@@ -17,12 +17,20 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  competitions Competition[]
+  competitions          Competition[]
+  // Competitors registered by this user (organizer or coach acting on
+  // behalf of an athlete). Public self-registrations leave this null.
+  registeredCompetitors Competitor[]  @relation("RegisteredBy")
 }
 
 enum UserRole {
   ORGANIZER
   ADMIN
+  // Coach acting on behalf of athletes from their club. Same auth
+  // mechanism as ORGANIZER but scoped reads/writes (only sees their
+  // registered athletes). Per-role permission gates land alongside the
+  // coach-account UI; this enum value just reserves the slot.
+  COACH
 }
 
 // ─── Competition ───
@@ -160,6 +168,11 @@ model Competitor {
   category           Category?          @relation(fields: [categoryId], references: [id])
   athleteId          String?
   athlete            Athlete?           @relation(fields: [athleteId], references: [id])
+  // Who registered this competitor. Public self-registrations leave this
+  // null. Coach- and organizer-driven registrations populate it for audit
+  // and "my athletes" filters.
+  registeredById     String?
+  registeredBy       User?              @relation("RegisteredBy", fields: [registeredById], references: [id], onDelete: SetNull)
   firstName          String
   lastName           String
   email              String             @default("")
@@ -170,6 +183,18 @@ model Competitor {
   club               String             @default("")
   registrationStatus RegistrationStatus @default(REGISTERED)
 
+  // Payment tracking (forward-looking). All nullable for backward compat
+  // with existing rows and free events. paymentIntentId is unique so
+  // Stripe webhook handlers can dedupe by it (idempotency requirement
+  // flagged in the Smoothcomp eng review). Decimal column for amount;
+  // refundedAt non-null means a refund was processed (use refund amount
+  // == paidAmount for full refunds; partial refunds need a separate table
+  // when we get there).
+  paymentIntentId    String?            @unique
+  paidAt             DateTime?
+  paidAmount         Decimal?           @db.Decimal(10, 2)
+  refundedAt         DateTime?
+
   matchesAsCompetitor1 Match[] @relation("Competitor1")
   matchesAsCompetitor2 Match[] @relation("Competitor2")
   matchesWon           Match[] @relation("Winner")
@@ -179,6 +204,7 @@ model Competitor {
   @@index([competitionId])
   @@index([categoryId])
   @@index([athleteId])
+  @@index([registeredById])
 }
 
 enum Belt {
