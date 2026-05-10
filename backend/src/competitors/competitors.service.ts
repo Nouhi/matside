@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -12,6 +11,7 @@ import {
   projectIjfCategory,
 } from '../categories/ijf-projection.util';
 import { AthletesService } from '../athletes/athletes.service';
+import { requireCompetitorAccess } from '../competitions/competition-access.util';
 
 export type CompetitorWithProjection = Competitor & { projection: IjfProjection };
 
@@ -181,16 +181,7 @@ export class CompetitorsService {
   }
 
   async updateWeight(id: string, organizerId: string, weight: number) {
-    const competitor = await this.prisma.competitor.findUnique({
-      where: { id },
-      include: { competition: true },
-    });
-    if (!competitor) {
-      throw new NotFoundException('Competitor not found');
-    }
-    if (competitor.competition.organizerId !== organizerId) {
-      throw new ForbiddenException();
-    }
+    const competitor = await requireCompetitorAccess(this.prisma, id, organizerId);
     if (competitor.competition.status !== 'WEIGH_IN') {
       throw new BadRequestException('Competition must be in WEIGH_IN status to update weight');
     }
@@ -225,17 +216,7 @@ export class CompetitorsService {
     previousProjection: IjfProjection;
     bumped: boolean;
   }> {
-    const competitor = await this.prisma.competitor.findUnique({
-      where: { id },
-      include: {
-        competition: true,
-        category: { select: { id: true, name: true } },
-      },
-    });
-    if (!competitor) throw new NotFoundException('Competitor not found');
-    if (competitor.competition.organizerId !== organizerId) {
-      throw new ForbiddenException();
-    }
+    const competitor = await requireCompetitorAccess(this.prisma, id, organizerId);
     if (competitor.competition.status !== 'WEIGH_IN') {
       throw new BadRequestException(
         'Competition must be in WEIGH_IN status to record weight',
@@ -296,15 +277,7 @@ export class CompetitorsService {
    * frontend distinguishes WITHDRAWN visually (struck-through row).
    */
   async disqualify(id: string, organizerId: string) {
-    const competitor = await this.prisma.competitor.findUnique({
-      where: { id },
-      include: { competition: true },
-    });
-    if (!competitor) throw new NotFoundException('Competitor not found');
-    if (competitor.competition.organizerId !== organizerId) {
-      throw new ForbiddenException();
-    }
-
+    await requireCompetitorAccess(this.prisma, id, organizerId);
     return this.prisma.competitor.update({
       where: { id },
       data: { registrationStatus: RegistrationStatus.WITHDRAWN },
@@ -312,17 +285,7 @@ export class CompetitorsService {
   }
 
   async withdraw(id: string, organizerId: string) {
-    const competitor = await this.prisma.competitor.findUnique({
-      where: { id },
-      include: { competition: true },
-    });
-    if (!competitor) {
-      throw new NotFoundException('Competitor not found');
-    }
-    if (competitor.competition.organizerId !== organizerId) {
-      throw new ForbiddenException();
-    }
-
+    await requireCompetitorAccess(this.prisma, id, organizerId);
     return this.prisma.competitor.update({
       where: { id },
       data: { registrationStatus: RegistrationStatus.WITHDRAWN, categoryId: null },
@@ -330,17 +293,7 @@ export class CompetitorsService {
   }
 
   async updateStatus(id: string, organizerId: string, status: RegistrationStatus) {
-    const competitor = await this.prisma.competitor.findUnique({
-      where: { id },
-      include: { competition: true },
-    });
-    if (!competitor) {
-      throw new NotFoundException('Competitor not found');
-    }
-    if (competitor.competition.organizerId !== organizerId) {
-      throw new ForbiddenException();
-    }
-
+    await requireCompetitorAccess(this.prisma, id, organizerId);
     return this.prisma.competitor.update({
       where: { id },
       data: { registrationStatus: status },

@@ -1,16 +1,16 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  requireCompetitionAccess,
+  requireMatAccess,
+} from '../competitions/competition-access.util';
 
 @Injectable()
 export class MatService {
   constructor(private prisma: PrismaService) {}
 
   async createMats(competitionId: string, count: number, organizerId: string) {
-    const competition = await this.prisma.competition.findUnique({
-      where: { id: competitionId },
-    });
-    if (!competition) throw new NotFoundException('Competition not found');
-    if (competition.organizerId !== organizerId) throw new ForbiddenException();
+    await requireCompetitionAccess(this.prisma, competitionId, organizerId);
 
     const existing = await this.prisma.mat.count({ where: { competitionId } });
 
@@ -85,13 +85,7 @@ export class MatService {
   }
 
   async assignMatchToMat(matId: string, matchId: string, organizerId: string) {
-    const mat = await this.prisma.mat.findUnique({
-      where: { id: matId },
-      include: { competition: true },
-    });
-    if (!mat) throw new NotFoundException('Mat not found');
-    if (mat.competition.organizerId !== organizerId) throw new ForbiddenException();
-
+    await requireMatAccess(this.prisma, matId, organizerId);
     return this.prisma.mat.update({
       where: { id: matId },
       data: { currentMatchId: matchId },

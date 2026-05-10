@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -8,21 +7,22 @@ import { Gender } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { determineAgeGroup } from './age-group.util';
 import { findIjfWeightClass, WeightClass } from './ijf-weight-classes';
+import {
+  requireCategoryAccess,
+  requireCompetitionAccess,
+  requireCompetitorAccess,
+} from '../competitions/competition-access.util';
 
 @Injectable()
 export class CategoriesService {
   constructor(private prisma: PrismaService) {}
 
   async generateCategories(competitionId: string, organizerId: string) {
-    const competition = await this.prisma.competition.findUnique({
-      where: { id: competitionId },
-    });
-    if (!competition) {
-      throw new NotFoundException('Competition not found');
-    }
-    if (competition.organizerId !== organizerId) {
-      throw new ForbiddenException();
-    }
+    const competition = await requireCompetitionAccess(
+      this.prisma,
+      competitionId,
+      organizerId,
+    );
     if (competition.status !== 'WEIGH_IN') {
       throw new BadRequestException(
         'Competition must be in WEIGH_IN status to generate categories',
@@ -121,16 +121,11 @@ export class CategoriesService {
   }
 
   async assignCompetitor(competitorId: string, organizerId: string) {
-    const competitor = await this.prisma.competitor.findUnique({
-      where: { id: competitorId },
-      include: { competition: true },
-    });
-    if (!competitor) {
-      throw new NotFoundException('Competitor not found');
-    }
-    if (competitor.competition.organizerId !== organizerId) {
-      throw new ForbiddenException();
-    }
+    const competitor = await requireCompetitorAccess(
+      this.prisma,
+      competitorId,
+      organizerId,
+    );
     if (!competitor.weight) {
       throw new BadRequestException('Competitor has no recorded weight');
     }
@@ -183,11 +178,11 @@ export class CategoriesService {
   }
 
   async assignCategoriesToMats(competitionId: string, organizerId: string) {
-    const competition = await this.prisma.competition.findUnique({
-      where: { id: competitionId },
-    });
-    if (!competition) throw new NotFoundException('Competition not found');
-    if (competition.organizerId !== organizerId) throw new ForbiddenException();
+    const competition = await requireCompetitionAccess(
+      this.prisma,
+      competitionId,
+      organizerId,
+    );
 
     const mats = await this.prisma.mat.findMany({
       where: { competitionId },
@@ -260,12 +255,7 @@ export class CategoriesService {
     matId: string | null,
     organizerId: string,
   ) {
-    const category = await this.prisma.category.findUnique({
-      where: { id: categoryId },
-      include: { competition: true },
-    });
-    if (!category) throw new NotFoundException('Category not found');
-    if (category.competition.organizerId !== organizerId) throw new ForbiddenException();
+    const category = await requireCategoryAccess(this.prisma, categoryId, organizerId);
 
     if (matId) {
       const mat = await this.prisma.mat.findUnique({ where: { id: matId } });
