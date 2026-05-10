@@ -15,6 +15,7 @@ interface Competition {
   date: string;
   location: string;
   status: string;
+  maxEntriesPerCategory: number | null;
 }
 
 interface Competitor {
@@ -298,6 +299,10 @@ export function CompetitionDetailPage() {
                 <Users size={14} />
                 {competitors.length} competitors
               </span>
+              <CapBadge
+                competitionId={id!}
+                value={competition.maxEntriesPerCategory}
+              />
             </div>
           </div>
           <span className={`self-start px-3 py-1.5 rounded-full text-xs font-medium ${STATUS_STYLES[competition.status] || STATUS_STYLES.DRAFT}`}>
@@ -775,6 +780,93 @@ function FilterChip({
       }`}
     >
       {children}
+    </button>
+  );
+}
+
+// Inline editable per-class capacity cap chip. Shows current value (or "no
+// cap"), opens a tiny prompt to change it. The backend interprets 0 as
+// "clear the cap".
+function CapBadge({
+  competitionId,
+  value,
+}: {
+  competitionId: string;
+  value: number | null;
+}) {
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(value ?? ''));
+
+  const mutation = useMutation({
+    mutationFn: (next: number) =>
+      api.patch(`/competitions/${competitionId}`, { maxEntriesPerCategory: next }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['competition', competitionId] });
+      setEditing(false);
+      toast('Cap updated', 'success');
+    },
+    onError: (err: Error) => toast(err.message),
+  });
+
+  if (editing) {
+    return (
+      <form
+        className="flex items-center gap-1"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const n = parseInt(draft, 10);
+          if (Number.isFinite(n) && n >= 0 && n <= 1000) {
+            mutation.mutate(n);
+          }
+        }}
+      >
+        <input
+          type="number"
+          min={0}
+          max={1000}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          autoFocus
+          placeholder="0 = no cap"
+          className="w-20 px-2 py-0.5 text-xs border border-gray-300 rounded"
+        />
+        <button
+          type="submit"
+          disabled={mutation.isPending}
+          className="px-2 py-0.5 text-xs bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-50"
+        >
+          Save
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setEditing(false);
+            setDraft(String(value ?? ''));
+          }}
+          className="px-2 py-0.5 text-xs text-gray-500 hover:text-gray-700"
+        >
+          Cancel
+        </button>
+      </form>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => {
+        setDraft(String(value ?? ''));
+        setEditing(true);
+      }}
+      className="flex items-center gap-1 hover:text-gray-700 transition-colors"
+      title="Click to change per-class capacity cap"
+    >
+      <Layers size={14} />
+      {value != null ? (
+        <span>cap {value}/class</span>
+      ) : (
+        <span className="italic text-gray-400">no cap</span>
+      )}
     </button>
   );
 }

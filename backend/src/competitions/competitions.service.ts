@@ -52,7 +52,13 @@ export class CompetitionsService {
   async update(
     id: string,
     organizerId: string,
-    data: { name?: string; date?: Date; location?: string; status?: CompetitionStatus },
+    data: {
+      name?: string;
+      date?: Date;
+      location?: string;
+      status?: CompetitionStatus;
+      maxEntriesPerCategory?: number | null;
+    },
   ) {
     const competition = await this.findOne(id, organizerId);
 

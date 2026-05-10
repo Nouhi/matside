@@ -10,7 +10,17 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import * as express from 'express';
-import { IsDateString, IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
 import { CompetitionStatus } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CompetitionsService } from './competitions.service';
@@ -49,6 +59,14 @@ export class UpdateCompetitionDto {
   @IsOptional()
   @IsEnum(CompetitionStatus)
   status?: CompetitionStatus;
+
+  // Per-projected-category cap. Null/undefined = unchanged. Pass 0 to clear.
+  // Upper bound is generous; the practical breaking point is around 32.
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1000)
+  maxEntriesPerCategory?: number;
 }
 
 @Controller('competitions')
@@ -90,6 +108,13 @@ export class CompetitionsController {
       date: dto.date ? new Date(dto.date) : undefined,
       location: dto.location,
       status: dto.status,
+      // 0 means "clear the cap" — translate to null for the service layer.
+      maxEntriesPerCategory:
+        dto.maxEntriesPerCategory === undefined
+          ? undefined
+          : dto.maxEntriesPerCategory === 0
+            ? null
+            : dto.maxEntriesPerCategory,
     });
   }
 

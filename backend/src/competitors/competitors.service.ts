@@ -1,10 +1,11 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Competitor, Gender, RegistrationStatus } from '@prisma/client';
+import { Competitor, Gender, Prisma, RegistrationStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   IjfProjection,
@@ -55,38 +56,112 @@ export class CompetitorsService {
       }
     }
 
-    // Wrap in a transaction so the athlete row and the competitor row land
-    // together. If the athlete create fails, we don't get an orphan
-    // registration, and vice versa.
-    const created = await this.prisma.$transaction(async (tx) => {
-      const athlete = await this.athletesService.findOrCreateForRegistration(
-        {
-          firstName: data.firstName,
-          lastName: data.lastName,
-          email: data.email ?? '',
-          licenseNumber: data.licenseNumber,
-          dateOfBirth: data.dateOfBirth,
-          gender: data.gender,
-        },
-        tx,
-      );
+    // Wrap in a SERIALIZABLE transaction so we can race-safely enforce the
+    // per-class capacity cap: if two registrations land on the same last
+    // slot concurrently, Postgres aborts one with a serialization failure
+    // and the caller sees a 409. Also keeps athlete + competitor creation
+    // atomic so neither can orphan the other.
+    const created = await this.prisma.$transaction(
+      async (tx) => {
+        // Capacity guard. Only enforced when (a) a cap is set on the
+        // competition, AND (b) the registrant projects to a real IJF class
+        // (we have weight, gender, DOB). Walk-up registrants with no
+        // weight at registration time bypass this check — their cap is
+        // enforced later at weigh-in if they bump.
+        if (competition.maxEntriesPerCategory != null && data.weight != null) {
+          const projected = projectIjfCategory(
+            {
+              dateOfBirth: data.dateOfBirth,
+              gender: data.gender,
+              weight: data.weight,
+            },
+            competition.date,
+          );
+          if (projected.weightLabel != null) {
+            const existingInClass = await this.countCompetitorsInProjectedClass(
+              tx,
+              competitionId,
+              competition.date,
+              data.gender,
+              projected.ageGroup,
+              projected.weightLabel,
+            );
+            if (existingInClass >= competition.maxEntriesPerCategory) {
+              throw new ConflictException(
+                `Cannot register: ${projected.categoryName} is at capacity ` +
+                  `(${competition.maxEntriesPerCategory} entries). ` +
+                  `Contact the organizer if you believe this is a mistake.`,
+              );
+            }
+          }
+        }
 
-      return tx.competitor.create({
-        data: {
-          competitionId,
-          athleteId: athlete.id,
-          firstName: data.firstName,
-          lastName: data.lastName,
-          email: data.email ?? '',
-          dateOfBirth: data.dateOfBirth,
-          gender: data.gender,
-          weight: data.weight,
-          club: data.club ?? '',
-        },
-      });
-    });
+        const athlete = await this.athletesService.findOrCreateForRegistration(
+          {
+            firstName: data.firstName,
+            lastName: data.lastName,
+            email: data.email ?? '',
+            licenseNumber: data.licenseNumber,
+            dateOfBirth: data.dateOfBirth,
+            gender: data.gender,
+          },
+          tx,
+        );
+
+        return tx.competitor.create({
+          data: {
+            competitionId,
+            athleteId: athlete.id,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            email: data.email ?? '',
+            dateOfBirth: data.dateOfBirth,
+            gender: data.gender,
+            weight: data.weight,
+            club: data.club ?? '',
+          },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
 
     return { ...created, projection: projectIjfCategory(created, competition.date) };
+  }
+
+  /**
+   * Count active (non-WITHDRAWN) competitors whose registered weight projects
+   * to the same IJF class as the given (gender, ageGroup, weightLabel).
+   * SQL-side filter doesn't easily express "compute IJF projection"; we load
+   * the small set of same-gender competitors with a weight, then filter in
+   * JS. Hundreds of rows is fine; thousands would warrant denormalizing the
+   * projected class into a column.
+   */
+  private async countCompetitorsInProjectedClass(
+    tx: Prisma.TransactionClient,
+    competitionId: string,
+    competitionDate: Date,
+    gender: Gender,
+    ageGroup: string,
+    weightLabel: string,
+  ): Promise<number> {
+    const candidates = await tx.competitor.findMany({
+      where: {
+        competitionId,
+        gender,
+        weight: { not: null },
+        registrationStatus: { not: 'WITHDRAWN' },
+      },
+      select: { dateOfBirth: true, gender: true, weight: true },
+    });
+
+    let count = 0;
+    for (const c of candidates) {
+      const p = projectIjfCategory(c, competitionDate);
+      if (p.ageGroup === ageGroup && p.weightLabel === weightLabel) {
+        count++;
+      }
+    }
+    return count;
   }
 
   async findAll(competitionId: string): Promise<CompetitorWithProjection[]> {
