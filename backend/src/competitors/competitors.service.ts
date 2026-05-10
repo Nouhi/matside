@@ -31,6 +31,7 @@ export class CompetitorsService {
       gender: Gender;
       weight?: number;
       club?: string;
+      licenseNumber?: string;
     },
   ): Promise<CompetitorWithProjection> {
     const competition = await this.prisma.competition.findUnique({
@@ -63,6 +64,7 @@ export class CompetitorsService {
           firstName: data.firstName,
           lastName: data.lastName,
           email: data.email ?? '',
+          licenseNumber: data.licenseNumber,
           dateOfBirth: data.dateOfBirth,
           gender: data.gender,
         },

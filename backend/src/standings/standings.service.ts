@@ -99,6 +99,7 @@ export class StandingsService {
               firstName: '',
               lastName: '',
               club: '',
+              athleteId: null,
             },
           })),
         });
@@ -125,6 +126,7 @@ export class StandingsService {
               firstName: '',
               lastName: '',
               club: '',
+              athleteId: null,
             },
             wins: r.wins,
             losses: r.losses,
@@ -148,6 +150,7 @@ export class StandingsService {
               firstName: '',
               lastName: '',
               club: '',
+              athleteId: null,
             },
           })),
         });

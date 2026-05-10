@@ -9,6 +9,7 @@ interface AthleteProfile {
   firstName: string;
   lastName: string;
   gender: string;
+  licenseNumber: string | null;
   competitions: AthleteCompetitionEntry[];
   lifetime: {
     competitionsEntered: number;
@@ -89,9 +90,15 @@ export function AthleteProfilePage() {
           <h1 className="text-3xl font-bold text-gray-900">
             {data.firstName} {data.lastName}
           </h1>
-          {recentClub && (
-            <p className="text-sm text-gray-500 mt-1">{recentClub}</p>
-          )}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-sm text-gray-500">
+            {recentClub && <span>{recentClub}</span>}
+            {data.licenseNumber && (
+              <span className="inline-flex items-center gap-1 font-mono text-xs">
+                <span className="text-gray-400 uppercase tracking-wider">License</span>
+                {data.licenseNumber}
+              </span>
+            )}
+          </div>
 
           <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
             <Stat label="Competitions" value={data.lifetime.competitionsEntered} />

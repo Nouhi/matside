@@ -12,6 +12,7 @@ interface RegistrationInput {
   firstName: string;
   lastName: string;
   email: string;
+  licenseNumber?: string;
   dateOfBirth: Date;
   gender: Gender;
 }
@@ -21,6 +22,10 @@ export interface AthleteProfile {
   firstName: string;
   lastName: string;
   gender: Gender;
+  // License is publicly displayable identity (federation issues it
+  // openly, like a USAJ membership number on a credential card). Email
+  // and DOB stay out of the public profile.
+  licenseNumber: string | null;
   competitions: AthleteCompetitionEntry[];
   lifetime: {
     competitionsEntered: number;
@@ -53,11 +58,17 @@ export class AthletesService {
   constructor(private prisma: PrismaService) {}
 
   /**
-   * Auto-match by email when present, else create a new athlete row. Called
-   * inline from competitor registration. Caller is responsible for tx safety.
+   * Auto-match by email first, then by license number, else create. Both
+   * keys are unique on Athlete; we try email first because more registrants
+   * have one. License is the more stable key in the long run (federation
+   * IDs survive email/club changes), but coverage is uneven.
    *
-   * Tx-aware: pass tx to participate in a parent transaction; otherwise
-   * uses the bare prisma client.
+   * If both email and license are provided AND each matches a *different*
+   * Athlete, that's a real-world data conflict. We prefer the email match
+   * and update the existing row's license to the new one — better than
+   * creating a duplicate athlete the organizer would have to merge.
+   *
+   * Tx-aware: pass tx to participate in a parent transaction.
    */
   async findOrCreateForRegistration(
     input: RegistrationInput,
@@ -65,10 +76,36 @@ export class AthletesService {
   ): Promise<Athlete> {
     const client = tx ?? this.prisma;
     const email = input.email && input.email.trim().length > 0 ? input.email.trim() : null;
+    const licenseNumber =
+      input.licenseNumber && input.licenseNumber.trim().length > 0
+        ? input.licenseNumber.trim()
+        : null;
 
     if (email) {
       const existing = await client.athlete.findUnique({ where: { email } });
-      if (existing) return existing;
+      if (existing) {
+        // Backfill licenseNumber if we now have one and the existing row doesn't.
+        if (licenseNumber && !existing.licenseNumber) {
+          return client.athlete.update({
+            where: { id: existing.id },
+            data: { licenseNumber },
+          });
+        }
+        return existing;
+      }
+    }
+
+    if (licenseNumber) {
+      const existing = await client.athlete.findUnique({ where: { licenseNumber } });
+      if (existing) {
+        if (email && !existing.email) {
+          return client.athlete.update({
+            where: { id: existing.id },
+            data: { email },
+          });
+        }
+        return existing;
+      }
     }
 
     return client.athlete.create({
@@ -78,6 +115,7 @@ export class AthletesService {
         dateOfBirth: input.dateOfBirth,
         gender: input.gender,
         email,
+        licenseNumber,
       },
     });
   }
@@ -151,6 +189,7 @@ export class AthletesService {
       firstName: athlete.firstName,
       lastName: athlete.lastName,
       gender: athlete.gender,
+      licenseNumber: athlete.licenseNumber,
       competitions,
       lifetime: {
         competitionsEntered: competitions.length,

@@ -7,13 +7,17 @@ import { AthletesService } from './athletes.service';
 describe('AthletesService', () => {
   let service: AthletesService;
   let prisma: {
-    athlete: { findUnique: jest.Mock; create: jest.Mock };
+    athlete: { findUnique: jest.Mock; create: jest.Mock; update: jest.Mock };
     competitor: { findMany: jest.Mock; update: jest.Mock };
   };
 
   beforeEach(async () => {
     prisma = {
-      athlete: { findUnique: jest.fn(), create: jest.fn() },
+      athlete: {
+        findUnique: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+      },
       competitor: { findMany: jest.fn(), update: jest.fn() },
     };
 
@@ -70,6 +74,7 @@ describe('AthletesService', () => {
           dateOfBirth: baseInput.dateOfBirth,
           gender: Gender.MALE,
           email: 'newbie@example.com',
+          licenseNumber: null,
         },
       });
     });
@@ -106,6 +111,134 @@ describe('AthletesService', () => {
 
       expect(prisma.athlete.findUnique).toHaveBeenCalledWith({
         where: { email: 'hiroshi@example.com' },
+      });
+    });
+
+    it('falls back to license number when email has no match', async () => {
+      // First call: email lookup returns null. Second call: license lookup
+      // returns existing athlete that already has its own email (so no
+      // backfill update is triggered — that's a separate test below).
+      prisma.athlete.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          id: 'a-license',
+          licenseNumber: 'USAJ-12345',
+          email: 'existing@example.com',
+        });
+
+      const result = await service.findOrCreateForRegistration({
+        ...baseInput,
+        email: 'newbie@example.com',
+        licenseNumber: 'USAJ-12345',
+      });
+
+      expect(result.id).toBe('a-license');
+      expect(prisma.athlete.findUnique).toHaveBeenNthCalledWith(1, {
+        where: { email: 'newbie@example.com' },
+      });
+      expect(prisma.athlete.findUnique).toHaveBeenNthCalledWith(2, {
+        where: { licenseNumber: 'USAJ-12345' },
+      });
+      expect(prisma.athlete.create).not.toHaveBeenCalled();
+    });
+
+    it('matches by license alone when no email is provided', async () => {
+      prisma.athlete.findUnique.mockResolvedValueOnce({
+        id: 'a-license',
+        licenseNumber: 'USAJ-12345',
+      });
+
+      const result = await service.findOrCreateForRegistration({
+        ...baseInput,
+        email: '',
+        licenseNumber: 'USAJ-12345',
+      });
+
+      expect(result.id).toBe('a-license');
+      // No email lookup because email is empty.
+      expect(prisma.athlete.findUnique).toHaveBeenCalledTimes(1);
+      expect(prisma.athlete.findUnique).toHaveBeenCalledWith({
+        where: { licenseNumber: 'USAJ-12345' },
+      });
+    });
+
+    it('email match takes precedence over license match', async () => {
+      // Email matches an athlete that already has a license; we never check
+      // the license argument's lookup. Backfill is also skipped because the
+      // existing athlete already has a license set.
+      prisma.athlete.findUnique.mockResolvedValueOnce({
+        id: 'a-by-email',
+        licenseNumber: 'PRE-EXISTING',
+      });
+
+      const result = await service.findOrCreateForRegistration({
+        ...baseInput,
+        email: 'hiroshi@example.com',
+        licenseNumber: 'USAJ-12345',
+      });
+
+      expect(result.id).toBe('a-by-email');
+      expect(prisma.athlete.findUnique).toHaveBeenCalledTimes(1);
+      expect(prisma.athlete.findUnique).toHaveBeenCalledWith({
+        where: { email: 'hiroshi@example.com' },
+      });
+    });
+
+    it('backfills licenseNumber on email-matched athlete that didn’t have one', async () => {
+      prisma.athlete.findUnique.mockResolvedValueOnce({
+        id: 'a-by-email',
+        licenseNumber: null,
+      });
+      prisma.athlete.update.mockResolvedValue({
+        id: 'a-by-email',
+        licenseNumber: 'USAJ-12345',
+      });
+
+      const result = await service.findOrCreateForRegistration({
+        ...baseInput,
+        email: 'hiroshi@example.com',
+        licenseNumber: 'USAJ-12345',
+      });
+
+      expect(prisma.athlete.update).toHaveBeenCalledWith({
+        where: { id: 'a-by-email' },
+        data: { licenseNumber: 'USAJ-12345' },
+      });
+      expect(result.licenseNumber).toBe('USAJ-12345');
+    });
+
+    it('passes licenseNumber to create when no match is found', async () => {
+      prisma.athlete.findUnique.mockResolvedValue(null);
+      prisma.athlete.create.mockResolvedValue({ id: 'new' });
+
+      await service.findOrCreateForRegistration({
+        ...baseInput,
+        email: 'newbie@example.com',
+        licenseNumber: 'USAJ-12345',
+      });
+
+      expect(prisma.athlete.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          email: 'newbie@example.com',
+          licenseNumber: 'USAJ-12345',
+        }),
+      });
+    });
+
+    it('treats whitespace-only license as no license', async () => {
+      prisma.athlete.findUnique.mockResolvedValue(null);
+      prisma.athlete.create.mockResolvedValue({ id: 'new' });
+
+      await service.findOrCreateForRegistration({
+        ...baseInput,
+        email: 'newbie@example.com',
+        licenseNumber: '   ',
+      });
+
+      // findUnique called once (for email), not twice (no license lookup).
+      expect(prisma.athlete.findUnique).toHaveBeenCalledTimes(1);
+      expect(prisma.athlete.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ licenseNumber: null }),
       });
     });
   });

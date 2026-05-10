@@ -120,14 +120,18 @@ enum MatchPhase {
 // working until backfilled.
 
 model Athlete {
-  id          String     @id @default(cuid())
-  firstName   String
-  lastName    String
-  dateOfBirth DateTime
-  gender      Gender
-  // Email is the only natural dedup key across tournaments. Nullable so
+  id            String     @id @default(cuid())
+  firstName     String
+  lastName      String
+  dateOfBirth   DateTime
+  gender        Gender
+  // Email is one natural dedup key across tournaments. Nullable so
   // walk-up registrants without email don't all collide on empty string.
-  email       String?    @unique
+  email         String?    @unique
+  // Federation license number — more stable than email (an athlete keeps
+  // it when they switch clubs or email providers). Used as a secondary
+  // auto-match key when present. Same nullable+unique pattern.
+  licenseNumber String?    @unique
 
   competitors Competitor[]
 
