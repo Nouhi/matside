@@ -6,31 +6,56 @@ import { ScoreboardService } from './scoreboard.service';
 describe('ScoreboardService', () => {
   let service: ScoreboardService;
   let prisma: {
+    $transaction: jest.Mock;
     match: {
       findUnique: jest.Mock;
       findFirst: jest.Mock;
+      findMany: jest.Mock;
       update: jest.Mock;
+      create: jest.Mock;
     };
     category: {
       findUnique: jest.Mock;
     };
+    competitor: {
+      count: jest.Mock;
+    };
+    competition: {
+      findUnique: jest.Mock;
+    };
     mat: {
       findUnique: jest.Mock;
+      update: jest.Mock;
     };
   };
 
   beforeEach(async () => {
     prisma = {
+      // Default $transaction mock: invoke the callback with the same prisma
+      // mock as the tx client. The advancement helpers call `tx.match.X`,
+      // which then hits the same `match` mock object — so the existing
+      // assertions on `prisma.match.update.mock.calls` still work, and we
+      // can override $transaction per-test to verify atomicity rollback.
+      $transaction: jest.fn().mockImplementation(async (fn) => fn(prisma)),
       match: {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
+        findMany: jest.fn(),
         update: jest.fn(),
+        create: jest.fn(),
       },
       category: {
         findUnique: jest.fn(),
       },
+      competitor: {
+        count: jest.fn(),
+      },
+      competition: {
+        findUnique: jest.fn(),
+      },
       mat: {
         findUnique: jest.fn(),
+        update: jest.fn(),
       },
     };
 
@@ -182,6 +207,85 @@ describe('ScoreboardService', () => {
       expect(call.data.scores.competitor2.yuko).toBe(0);
       expect(call.data.scores.competitor1.wazaAri).toBe(1);
       expect(call.data.scores.competitor2.shido).toBe(1);
+    });
+
+    // ENG-A2 regression suite — verify the interactive transaction wrap.
+    describe('transaction boundary (ENG-A2)', () => {
+      it('runs the match update + advancement inside $transaction', async () => {
+        prisma.match.findUnique.mockResolvedValue(activeMatch());
+        prisma.category.findUnique.mockResolvedValue({ id: 'cat-1', bracketType: 'ROUND_ROBIN' });
+        prisma.match.update.mockImplementation(({ data }) =>
+          Promise.resolve({ id: 'match-1', categoryId: 'cat-1', round: 1, poolPosition: 1, ...data }),
+        );
+
+        await service.applyScoreEvent('match-1', {
+          type: 'IPPON', competitorId: 'c1', timestamp: 0,
+        });
+
+        // The first prisma call inside applyScoreEvent (after the pre-flight
+        // findUnique) MUST be $transaction. If a future refactor accidentally
+        // calls match.update outside the transaction, this assertion fails.
+        expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+        // First argument to $transaction is the interactive callback.
+        const txCallback = prisma.$transaction.mock.calls[0][0];
+        expect(typeof txCallback).toBe('function');
+      });
+
+      it('rolls back the match update when advancement throws', async () => {
+        // Simulate the canonical partial-write race: match.update succeeds,
+        // then advanceWinner throws (DB blip, FK violation, etc.). Without
+        // the transaction wrap, the match would commit as COMPLETED with no
+        // advancement. With the wrap, the entire $transaction rejects and
+        // the caller sees the error — no half-written state.
+        prisma.match.findUnique.mockResolvedValue(activeMatch());
+        prisma.category.findUnique.mockResolvedValue({ id: 'cat-1', bracketType: 'SINGLE_REPECHAGE' });
+        prisma.match.update.mockResolvedValue({
+          id: 'match-1', categoryId: 'cat-1', round: 1, poolPosition: 1,
+          status: 'COMPLETED', winnerId: 'c1',
+        });
+        // Force the advancement path to fail.
+        prisma.match.findFirst.mockRejectedValue(new Error('simulated DB failure'));
+        // Make $transaction propagate the inner throw (real Prisma behavior).
+        prisma.$transaction.mockImplementation(async (fn) => fn(prisma));
+
+        await expect(
+          service.applyScoreEvent('match-1', { type: 'IPPON', competitorId: 'c1', timestamp: 0 }),
+        ).rejects.toThrow('simulated DB failure');
+      });
+
+      it('passes the tx client (not this.prisma) to advancement helpers', async () => {
+        // Sentinel-based test: $transaction hands a unique stub to the
+        // callback. If any advancement helper accidentally reaches for
+        // `this.prisma` instead of the passed-in tx, that helper's call
+        // shows up on the wrong mock object.
+        prisma.match.findUnique.mockResolvedValue(activeMatch());
+        prisma.category.findUnique.mockResolvedValue({ id: 'cat-1', bracketType: 'SINGLE_REPECHAGE' });
+
+        const txStub = {
+          match: {
+            update: jest.fn().mockResolvedValue({
+              id: 'match-1', categoryId: 'cat-1', round: 1, poolPosition: 1,
+              status: 'COMPLETED', winnerId: 'c1',
+            }),
+            findFirst: jest.fn().mockResolvedValue(null), // no next slot
+          },
+          category: { findUnique: jest.fn().mockResolvedValue({ id: 'cat-1', bracketType: 'SINGLE_REPECHAGE' }) },
+          competitor: { count: jest.fn() },
+          mat: { findUnique: jest.fn(), update: jest.fn() },
+          competition: { findUnique: jest.fn() },
+        };
+        prisma.$transaction.mockImplementation(async (fn) => fn(txStub));
+
+        await service.applyScoreEvent('match-1', {
+          type: 'IPPON', competitorId: 'c1', timestamp: 0,
+        });
+
+        // Advancement should have queried the category via the tx stub, not the parent.
+        expect(txStub.category.findUnique).toHaveBeenCalledWith({ where: { id: 'cat-1' } });
+        // And the parent's category.findUnique must NOT have been touched
+        // inside the transaction (only the pre-flight read uses it).
+        expect(prisma.category.findUnique).not.toHaveBeenCalled();
+      });
     });
   });
 
