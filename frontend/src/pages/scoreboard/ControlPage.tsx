@@ -63,47 +63,26 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+// Presentation-only timer. The countdown lives in ControlBoard so siblings
+// (e.g., the Golden Score button) can react to remaining time hitting 0.
 function MatchTimer({
+  remainingSeconds,
   matchState,
   isRunning,
   onToggle,
 }: {
+  remainingSeconds: number;
   matchState: MatchState;
   isRunning: boolean;
   onToggle: () => void;
 }) {
-  const [remaining, setRemaining] = useState(matchState.duration || 240);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (matchState.status !== 'ACTIVE') return;
-    setRemaining(matchState.duration || 240);
-  }, [matchState.duration, matchState.id]);
-
-  useEffect(() => {
-    if (isRunning) {
-      intervalRef.current = setInterval(() => {
-        setRemaining((prev) => {
-          if (prev <= 0) return 0;
-          return prev - 1;
-        });
-      }, 1000);
-    } else if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [isRunning]);
-
-  const expired = remaining <= 0;
-
+  const expired = remainingSeconds <= 0;
   return (
     <div className="flex flex-col items-center gap-2">
       <div
         className={`text-5xl font-mono font-bold ${expired ? 'text-red-500' : 'text-white'}`}
       >
-        {formatTime(remaining)}
+        {formatTime(remainingSeconds)}
       </div>
       {matchState.status === 'ACTIVE' && (
         <button
@@ -140,20 +119,34 @@ function OsaekomiTimer({ osaekomi }: { osaekomi: OsaekomiState }) {
 
   if (!osaekomi.active) return null;
 
-  const flash10 = elapsed >= 10 && elapsed < 20;
-  const flash20 = elapsed >= 20;
+  // Threshold cues mirror the IJF rule:
+  //  10s → waza-ari is awarded server-side
+  //  20s → ippon and the match ends
+  // Showing the "+WAZA-ARI" / "IPPON" hint pre-empts the server event so
+  // organizers and competitors see what's about to happen, then the score
+  // arrives via socket and the OsaekomiTimer disappears (osaekomi.active=false
+  // for ippon, or stays running for waza-ari).
+  const reachedIppon = elapsed >= 20;
+  const reachedWazaAri = elapsed >= 10 && elapsed < 20;
+
+  let label: string;
+  let toneClasses: string;
+  if (reachedIppon) {
+    label = `OSAEKOMI ${elapsed}s · IPPON`;
+    toneClasses = 'bg-red-600 text-white animate-pulse';
+  } else if (reachedWazaAri) {
+    label = `OSAEKOMI ${elapsed}s · +WAZA-ARI`;
+    toneClasses = 'bg-amber-400 text-black animate-pulse';
+  } else {
+    label = `OSAEKOMI ${elapsed}s`;
+    toneClasses = 'bg-amber-500 text-black';
+  }
 
   return (
     <div
-      className={`text-center py-3 rounded-lg font-bold text-2xl ${
-        flash20
-          ? 'bg-red-600 text-white animate-pulse'
-          : flash10
-            ? 'bg-amber-400 text-black animate-pulse'
-            : 'bg-amber-500 text-black'
-      }`}
+      className={`text-center py-3 px-4 rounded-lg font-bold text-2xl tabular-nums ${toneClasses}`}
     >
-      OSAEKOMI {elapsed}s
+      {label}
     </div>
   );
 }
@@ -286,9 +279,48 @@ function ControlBoard({
   const { matchState, role, isConnected, osaekomi, actions } = useScoreboard(matId, pin);
   const [timerRunning, setTimerRunning] = useState(false);
   const [showEndModal, setShowEndModal] = useState(false);
+  // Timer countdown lives here (not in MatchTimer) so the Golden Score
+  // button can be gated on regulation time having actually expired.
+  // remainingSeconds: countdown from matchState.duration. 0 = regulation
+  // expired (or no match active).
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
+  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isActive = matchState?.status === 'ACTIVE';
   const buttonsEnabled = isActive && isConnected;
+  // Golden Score is only meaningful AFTER regulation has run out. Hiding it
+  // before then matches IJF practice (you can't enter golden score while
+  // there's still official time on the clock) and prevents an organizer
+  // misclick that would invalidate a referee decision.
+  const regulationExpired = isActive && remainingSeconds <= 0;
+
+  // Reset the timer to the match's duration whenever the match changes
+  // or transitions into ACTIVE. Outside ACTIVE we hold remaining at 0.
+  useEffect(() => {
+    if (matchState?.status === 'ACTIVE') {
+      setRemainingSeconds(matchState.duration || 240);
+    } else {
+      setRemainingSeconds(0);
+    }
+  }, [matchState?.id, matchState?.status, matchState?.duration]);
+
+  // Run the countdown only while running AND active. Match leaving ACTIVE
+  // (manual end OR osaekomi-triggered ippon) flips both flags via the
+  // useEffect below — interval clears, remaining freezes.
+  useEffect(() => {
+    const shouldRun = timerRunning && matchState?.status === 'ACTIVE';
+    if (shouldRun) {
+      timerIntervalRef.current = setInterval(() => {
+        setRemainingSeconds((prev) => Math.max(0, prev - 1));
+      }, 1000);
+    } else if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+    return () => {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    };
+  }, [timerRunning, matchState?.status]);
 
   useEffect(() => {
     if (matchState && matchState.status !== 'ACTIVE') {
@@ -417,6 +449,7 @@ function ControlBoard({
 
           <div className="flex flex-col items-center gap-3">
             <MatchTimer
+              remainingSeconds={remainingSeconds}
               matchState={matchState}
               isRunning={timerRunning}
               onToggle={() => setTimerRunning(!timerRunning)}
@@ -463,10 +496,13 @@ function ControlBoard({
                   START MATCH
                 </button>
               )}
-              {isActive && !matchState.goldenScore && (
+              {/* Golden Score is only shown after regulation time hits 0,
+                  matching IJF practice — you can't enter golden score while
+                  there's still official time on the clock. */}
+              {isActive && regulationExpired && !matchState.goldenScore && (
                 <button
                   onClick={handleGoldenScore}
-                  className="min-h-[60px] bg-yellow-600 hover:bg-yellow-700 text-white font-bold text-base rounded-lg"
+                  className="min-h-[60px] bg-yellow-600 hover:bg-yellow-700 text-white font-bold text-base rounded-lg animate-pulse"
                 >
                   GOLDEN SCORE
                 </button>
@@ -475,7 +511,7 @@ function ControlBoard({
                 <button
                   onClick={() => setShowEndModal(true)}
                   className={`min-h-[60px] bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-bold text-base rounded-lg ${
-                    !matchState.goldenScore ? '' : 'col-span-2'
+                    regulationExpired && !matchState.goldenScore ? '' : 'col-span-2'
                   }`}
                 >
                   END MATCH
