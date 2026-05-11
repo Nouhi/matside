@@ -911,9 +911,12 @@ function CategoriesTab({
               {BRACKET_LABELS[cat.bracketType] || cat.bracketType} · {cat._count?.competitors ?? cat.competitors?.length ?? 0} competitors
             </p>
           </div>
+          {/* Fixed widths on both control + pill so the right rail aligns
+              vertically across rows regardless of pill label length
+              ("POOLS" vs "Round Robin") or mat-number digit count. */}
           <div className="flex items-center gap-3 shrink-0">
             <select
-              className="px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white"
+              className="w-28 px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white"
               value={cat.matId ?? ''}
               onChange={(e) => {
                 const value = e.target.value;
@@ -929,7 +932,7 @@ function CategoriesTab({
                 <option key={m.id} value={m.id}>Mat {m.number}</option>
               ))}
             </select>
-            <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+            <span className={`inline-flex justify-center min-w-[7rem] px-2.5 py-1 rounded-full text-xs font-medium ${
               cat.bracketType === 'ROUND_ROBIN' ? 'bg-purple-100 text-purple-700' :
               cat.bracketType === 'SINGLE_REPECHAGE' ? 'bg-orange-100 text-orange-700' :
               'bg-red-100 text-red-700'
