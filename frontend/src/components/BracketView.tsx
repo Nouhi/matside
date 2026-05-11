@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { bracketLabel, bracketPillClass } from '@/lib/bracket';
 
 interface Competitor {
   id: string;
@@ -31,14 +32,6 @@ interface Category {
   matches: Match[];
   _count?: { competitors: number };
 }
-
-const BRACKET_LABELS: Record<string, string> = {
-  ROUND_ROBIN: 'Round Robin',
-  POOLS: 'Pool Play',
-  SINGLE_REPECHAGE: 'Single Elimination',
-  DOUBLE_REPECHAGE: 'Double Repechage',
-  GRAND_SLAM: 'Grand Slam (4 pools)',
-};
 
 const WIN_METHOD_SHORT: Record<string, string> = {
   IPPON: 'IPP',
@@ -115,16 +108,8 @@ export function BracketView({ categories }: { categories: Category[] }) {
         <div className="mt-4">
           <div className="flex items-center gap-3 mb-4">
             <h3 className="text-lg font-semibold text-gray-900">{activeCategory.name}</h3>
-            <span
-              className={`px-2 py-0.5 rounded text-xs font-medium ${
-                activeCategory.bracketType === 'ROUND_ROBIN'
-                  ? 'bg-purple-100 text-purple-700'
-                  : activeCategory.bracketType === 'SINGLE_REPECHAGE'
-                    ? 'bg-orange-100 text-orange-700'
-                    : 'bg-red-100 text-red-700'
-              }`}
-            >
-              {BRACKET_LABELS[activeCategory.bracketType] || activeCategory.bracketType}
+            <span className={`px-2 py-0.5 rounded text-xs font-medium ${bracketPillClass(activeCategory.bracketType)}`}>
+              {bracketLabel(activeCategory.bracketType)}
             </span>
             <span className="text-sm text-gray-500">
               {activeCategory.competitors?.length ?? 0} competitors
