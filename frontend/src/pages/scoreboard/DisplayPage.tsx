@@ -30,10 +30,32 @@ function OsaekomiBar({ osaekomi }: { osaekomi: OsaekomiState }) {
 
   if (!osaekomi.active) return null;
 
+  // Threshold cues match the IJF rule: 10s = waza-ari, 20s = ippon.
+  // The matching score event arrives via socket from the server's
+  // authoritative timer; the label change here is a visual heads-up so
+  // spectators see it coming.
+  const reachedIppon = elapsed >= 20;
+  const reachedWazaAri = elapsed >= 10 && elapsed < 20;
+
+  let label: string;
+  let bg: string;
+  if (reachedIppon) {
+    label = `OSAEKOMI ${elapsed} · IPPON`;
+    bg = 'bg-red-600 text-white';
+  } else if (reachedWazaAri) {
+    label = `OSAEKOMI ${elapsed} · +WAZA-ARI`;
+    bg = 'bg-amber-400 text-black';
+  } else {
+    label = `OSAEKOMI ${elapsed}`;
+    bg = 'bg-amber-500 text-black';
+  }
+
   return (
-    <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 bg-amber-500 py-3 flex items-center justify-center animate-pulse z-10">
-      <span className="text-[clamp(28px,4vw,56px)] font-mono font-black text-black tracking-widest">
-        OSAEKOMI {elapsed}
+    <div
+      className={`absolute inset-x-0 top-1/2 -translate-y-1/2 py-3 flex items-center justify-center animate-pulse z-10 ${bg}`}
+    >
+      <span className="text-[clamp(28px,4vw,56px)] font-mono font-black tracking-widest tabular-nums">
+        {label}
       </span>
     </div>
   );
