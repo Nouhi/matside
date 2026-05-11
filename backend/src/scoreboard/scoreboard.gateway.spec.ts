@@ -1,4 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { WsException } from '@nestjs/websockets';
+import { WinMethod } from '@prisma/client';
 import { ScoreboardGateway } from './scoreboard.gateway';
 import { ScoreboardService } from './scoreboard.service';
 import { MatService } from './mat.service';
@@ -107,5 +109,66 @@ describe('ScoreboardGateway osaekomi resolution', () => {
 
     expect(scoreboardService.applyScoreEvent).not.toHaveBeenCalled();
     expect(serverEmit).not.toHaveBeenCalled();
+  });
+});
+
+// ENG-Q4: socket-boundary validation for end-match winMethod.
+describe('ScoreboardGateway handleEndMatch validation', () => {
+  let gateway: ScoreboardGateway;
+  let scoreboardService: { endMatch: jest.Mock };
+
+  beforeEach(async () => {
+    scoreboardService = { endMatch: jest.fn().mockResolvedValue({}) };
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ScoreboardGateway,
+        { provide: ScoreboardService, useValue: scoreboardService },
+        { provide: MatService, useValue: { verifyPin: jest.fn() } },
+      ],
+    }).compile();
+    gateway = module.get<ScoreboardGateway>(ScoreboardGateway);
+    (gateway as unknown as { server: { to: (r: string) => { emit: jest.Mock } } }).server = {
+      to: () => ({ emit: jest.fn() }),
+    };
+    (gateway as unknown as { isController: () => boolean }).isController = () => true;
+    (gateway as unknown as { getClientRoom: () => string }).getClientRoom = () => 'mat:test';
+  });
+
+  function fakeClient() {
+    return { id: 'sock-1', join: jest.fn(), emit: jest.fn() } as never;
+  }
+
+  it('accepts every valid WinMethod enum value', async () => {
+    for (const winMethod of Object.values(WinMethod)) {
+      scoreboardService.endMatch.mockClear();
+      await gateway.handleEndMatch(fakeClient(), {
+        matchId: 'm1',
+        winnerId: 'c1',
+        winMethod,
+      });
+      expect(scoreboardService.endMatch).toHaveBeenCalledWith('m1', 'c1', winMethod);
+    }
+  });
+
+  it('rejects an unknown winMethod string with WsException (does not reach the service)', async () => {
+    await expect(
+      gateway.handleEndMatch(fakeClient(), {
+        matchId: 'm1',
+        winnerId: 'c1',
+        winMethod: 'NOT_A_REAL_METHOD',
+      }),
+    ).rejects.toThrow(WsException);
+    expect(scoreboardService.endMatch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a junk-cased valid name (case-sensitive enum match)', async () => {
+    await expect(
+      gateway.handleEndMatch(fakeClient(), {
+        matchId: 'm1',
+        winnerId: 'c1',
+        winMethod: 'ippon', // lowercase — not the canonical enum value
+      }),
+    ).rejects.toThrow(WsException);
+    expect(scoreboardService.endMatch).not.toHaveBeenCalled();
   });
 });
