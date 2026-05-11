@@ -367,7 +367,7 @@ export function CompetitionDetailPage() {
                   onClick={() => setActiveTab(tab)}
                   className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
                     activeTab === tab
-                      ? 'border-gray-900 text-gray-900'
+                      ? 'border-[#0a3a7a] text-gray-900'
                       : 'border-transparent text-gray-500 hover:text-gray-700'
                   }`}
                 >
