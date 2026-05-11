@@ -387,9 +387,11 @@ export function DisplayPage() {
     ? `${matchState.competitor2.lastName} ${matchState.competitor2.firstName}`
     : '';
 
-  const comp1Club = (matchState?.competitor1 as unknown as { club?: string })?.club;
-  const comp2Club = (matchState?.competitor2 as unknown as { club?: string })?.club;
-  const categoryName = (matchState as unknown as { category?: { name?: string } })?.category?.name;
+  // Bundle 1 / ENG-Q2: MatchState now declares these directly; backend's
+  // getMatState include returns club and category, so the cast era is over.
+  const comp1Club = matchState?.competitor1?.club;
+  const comp2Club = matchState?.competitor2?.club;
+  const categoryName = matchState?.category?.name;
 
   const winner1 = matchState?.winner?.id === matchState?.competitor1?.id;
   const winner2 = matchState?.winner?.id === matchState?.competitor2?.id;

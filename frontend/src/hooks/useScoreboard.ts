@@ -1,6 +1,10 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 
+// MUST MATCH backend/src/scoreboard/scoreboard.types.ts. The frontend lives
+// in a separate package; this monorepo has no shared types workspace yet.
+// A type-mirror test in useScoreboard.test.ts compares this shape against
+// the inferred backend shape so drift fails type-check.
 export interface CompetitorScore {
   wazaAri: number;
   yuko: number;
@@ -12,16 +16,36 @@ export interface MatchScores {
   competitor2: CompetitorScore;
 }
 
+// MUST MATCH the Prisma `WinMethod` enum in backend/prisma/schema.prisma.
+// Literal union (not `string`) so consumers (e.g. WinBanner switch in
+// DisplayPage) can exhaustively branch with type-safety. The matching
+// runtime validation lives at the socket boundary in scoreboard.gateway.ts.
+export type WinMethod =
+  | 'IPPON'
+  | 'WAZA_ARI'
+  | 'DECISION'
+  | 'HANSOKU_MAKE'
+  | 'FUSEN_GACHI'
+  | 'KIKEN_GACHI';
+
+interface MatchCompetitor {
+  id: string;
+  firstName: string;
+  lastName: string;
+  club?: string;
+}
+
 export interface MatchState {
   id: string;
   status: string;
-  competitor1?: { id: string; firstName: string; lastName: string };
-  competitor2?: { id: string; firstName: string; lastName: string };
+  competitor1?: MatchCompetitor;
+  competitor2?: MatchCompetitor;
   winner?: { id: string; firstName: string; lastName: string };
-  winMethod?: string;
+  winMethod?: WinMethod;
   scores: MatchScores;
   duration: number;
   goldenScore: boolean;
+  category?: { name: string };
 }
 
 export interface OsaekomiState {
