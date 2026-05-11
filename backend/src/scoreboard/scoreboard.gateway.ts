@@ -6,9 +6,16 @@ import {
   MessageBody,
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
+import { WsException } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { WinMethod } from '@prisma/client';
 import { ScoreboardService, ScoreEvent } from './scoreboard.service';
 import { MatService } from './mat.service';
+
+// Canonical set of WinMethod values, captured at module load. Use this
+// instead of `Object.values(WinMethod)` inside the handler to avoid
+// re-evaluating the enum on every socket message.
+const VALID_WIN_METHODS = new Set<string>(Object.values(WinMethod));
 
 interface OsaekomiTracker {
   competitorId: string;
@@ -114,13 +121,22 @@ export class ScoreboardGateway implements OnGatewayDisconnect {
   ) {
     if (!this.isController(client)) return;
 
-    await this.scoreboardService.endMatch(data.matchId, data.winnerId, data.winMethod);
+    // Runtime validation at the trust boundary. `data.winMethod` is an
+    // arbitrary string from the socket — without this guard, Prisma would
+    // reject the bad value at write time with an opaque error after the
+    // service tries to update. Surface a clean WsException instead.
+    if (!VALID_WIN_METHODS.has(data.winMethod)) {
+      throw new WsException(`Invalid winMethod: ${data.winMethod}`);
+    }
+    const winMethod = data.winMethod as WinMethod;
+
+    await this.scoreboardService.endMatch(data.matchId, data.winnerId, winMethod);
     const room = this.getClientRoom(client);
 
     this.server.to(room).emit('match-ended', {
       matchId: data.matchId,
       winnerId: data.winnerId,
-      winMethod: data.winMethod,
+      winMethod,
     });
   }
 
