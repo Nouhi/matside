@@ -70,6 +70,34 @@ function headToHeadWinner(
   return null;
 }
 
+/*
+ * rankRoundRobin — IJF round-robin tiebreaker chain.
+ *
+ *   ┌──────────────────────────────────────────────────────────┐
+ *   │ Step 1: WIN COUNT (more wins → higher rank)               │
+ *   │   tied?                                                   │
+ *   │   ▼                                                       │
+ *   │ Step 2: HEAD-TO-HEAD — but ONLY when exactly 2 are tied.  │
+ *   │         When 3+ tied, H2H produces ambiguous loops (A>B,  │
+ *   │         B>C, C>A) and IJF rules drop straight to step 3.  │
+ *   │         (Implemented via headToHeadWinner: returns the    │
+ *   │         single winner of the direct match, or null.)      │
+ *   │   tied?                                                   │
+ *   │   ▼                                                       │
+ *   │ Step 3: IPPONS scored (descending)                        │
+ *   │   tied?                                                   │
+ *   │   ▼                                                       │
+ *   │ Step 4: WAZA-ARI count (descending)                       │
+ *   │   tied?                                                   │
+ *   │   ▼                                                       │
+ *   │ Step 5: FEWEST shidos received (ascending)                │
+ *   │   tied?                                                   │
+ *   │   ▼                                                       │
+ *   │ PENDING_PLAYOFF: cannot rank further; mark the cluster    │
+ *   │ and surface the tie to the organizer. (status field on    │
+ *   │ CategoryStandings.)                                       │
+ *   └──────────────────────────────────────────────────────────┘
+ */
 export function rankRoundRobin(
   competitorIds: string[],
   matches: StandingMatch[],

@@ -1,7 +1,9 @@
-export interface MatchScores {
-  competitor1: { wazaAri: number; yuko?: number; shido: number };
-  competitor2: { wazaAri: number; yuko?: number; shido: number };
-}
+// MatchScores is owned by the scoreboard module (scoreboard writes the JSON,
+// standings only reads it). Importing here keeps the two views in lock-step;
+// previously two slightly-different shapes coexisted (yuko required vs
+// optional) and were glued by an `as unknown as` cast in scoreboard.service.ts.
+export type { MatchScores } from '../scoreboard/scoreboard.types';
+import type { MatchScores } from '../scoreboard/scoreboard.types';
 
 export interface StandingMatch {
   competitor1Id: string | null;
@@ -33,7 +35,10 @@ export interface RoundRobinStanding extends CompetitorStats {
 
 export interface CategoryStandings {
   categoryId: string;
-  bracketType: 'ROUND_ROBIN' | 'SINGLE_REPECHAGE' | 'DOUBLE_REPECHAGE';
+  // Mirrors the Prisma BracketType enum. POOLS and GRAND_SLAM produce
+  // post-pool elimination brackets; the standings service still has to
+  // describe them even if the eliminator format is what spectators see.
+  bracketType: 'ROUND_ROBIN' | 'POOLS' | 'SINGLE_REPECHAGE' | 'DOUBLE_REPECHAGE' | 'GRAND_SLAM';
   status: 'IN_PROGRESS' | 'COMPLETE' | 'PENDING_PLAYOFF';
   standings: RoundRobinStanding[];
 }

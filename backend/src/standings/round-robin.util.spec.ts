@@ -23,8 +23,8 @@ function match(
     round: 1,
     poolPosition: 1,
     scores: {
-      competitor1: { wazaAri: 0, shido: shidos.c1 },
-      competitor2: { wazaAri: 0, shido: shidos.c2 },
+      competitor1: { wazaAri: 0, yuko: 0, shido: shidos.c1 },
+      competitor2: { wazaAri: 0, yuko: 0, shido: shidos.c2 },
     },
   };
 }

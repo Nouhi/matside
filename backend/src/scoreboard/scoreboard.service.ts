@@ -1,11 +1,14 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { MatchPhase, Prisma } from '@prisma/client';
+import { MatchPhase, Prisma, WinMethod } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { getNextSlot } from '../brackets/single-repechage.util';
 import { knockoutFormatFor } from '../brackets/pools.util';
 import { halfFor, totalRoundsFor as drTotalRoundsFor } from '../brackets/double-repechage.util';
 import { rankRoundRobin } from '../standings/round-robin.util';
-import { MatchScores as StandingMatchScores, StandingMatch } from '../standings/standings.types';
+import { StandingMatch } from '../standings/standings.types';
+import { CompetitorScore, MatchScores } from './scoreboard.types';
+
+export type { CompetitorScore, MatchScores };
 
 export type ScoreEventType = 'WAZA_ARI' | 'YUKO' | 'SHIDO' | 'IPPON';
 
@@ -13,17 +16,6 @@ export interface ScoreEvent {
   type: ScoreEventType;
   competitorId: string;
   timestamp: number;
-}
-
-export interface CompetitorScore {
-  wazaAri: number;
-  yuko: number;
-  shido: number;
-}
-
-export interface MatchScores {
-  competitor1: CompetitorScore;
-  competitor2: CompetitorScore;
 }
 
 const EMPTY_SCORE: CompetitorScore = { wazaAri: 0, yuko: 0, shido: 0 };
@@ -36,18 +28,34 @@ function normalizeScores(raw: unknown): MatchScores {
   };
 }
 
+// What Prisma actually returns for `match.update({ include: { competitor1, competitor2 }})`.
+// Used as the shape of `ApplyResult.match` so callers (the gateway) can read
+// `result.match.scores` etc. without `any`.
+type MatchWithCompetitors = Prisma.MatchGetPayload<{
+  include: { competitor1: true; competitor2: true };
+}>;
+
 interface ApplyResult {
-  match: any;
+  match: MatchWithCompetitors;
   terminated: boolean;
-  winMethod?: string;
+  winMethod?: WinMethod;
   winnerId?: string;
 }
+
+// Subset of PrismaClient that the transaction-scoped advancement helpers
+// need. Both `this.prisma` (the full client) and `tx` (the interactive
+// transaction client) satisfy this — the helpers only use the listed
+// model accessors, so they work in either context.
+type TxClient = Pick<Prisma.TransactionClient, 'match' | 'category' | 'competitor' | 'mat' | 'competition'>;
 
 @Injectable()
 export class ScoreboardService {
   constructor(private prisma: PrismaService) {}
 
   async applyScoreEvent(matchId: string, event: ScoreEvent): Promise<ApplyResult> {
+    // Read the match outside the transaction. Holding a transaction open
+    // across user/UI latency is wasteful; the score event itself is the
+    // unit of work that needs atomicity, not the read-then-decide.
     const match = await this.prisma.match.findUnique({
       where: { id: matchId },
       include: { competitor1: true, competitor2: true },
@@ -68,20 +76,20 @@ export class ScoreboardService {
     }
 
     let terminated = false;
-    let winMethod: string | undefined;
+    let winMethod: WinMethod | undefined;
     let winnerId: string | undefined;
 
     if (event.type === 'IPPON') {
       terminated = true;
-      winMethod = 'IPPON';
+      winMethod = WinMethod.IPPON;
       winnerId = event.competitorId;
     } else if (scores[side].wazaAri >= 2) {
       terminated = true;
-      winMethod = 'IPPON';
+      winMethod = WinMethod.IPPON;
       winnerId = event.competitorId;
     } else if (scores[side].shido >= 3) {
       terminated = true;
-      winMethod = 'HANSOKU_MAKE';
+      winMethod = WinMethod.HANSOKU_MAKE;
       winnerId = side === 'competitor1' ? match.competitor2Id! : match.competitor1Id!;
     }
 
@@ -89,19 +97,37 @@ export class ScoreboardService {
     if (terminated) {
       updateData.status = 'COMPLETED';
       updateData.winner = { connect: { id: winnerId } };
-      updateData.winMethod = winMethod as any;
+      updateData.winMethod = winMethod;
     }
 
-    const updated = await this.prisma.match.update({
-      where: { id: matchId },
-      data: updateData,
-      include: { competitor1: true, competitor2: true },
+    // Atomicity boundary: the match update + (if terminated) bracket
+    // advancement + mat queue advancement all commit together or roll
+    // back together. A failure mid-advancement now leaves the match in
+    // its prior state instead of writing a "match completed but bracket
+    // not advanced" partial state that we'd have to repair by hand.
+    //
+    // CONCURRENCY NOTE: this transaction prevents PARTIAL writes within
+    // one applyScoreEvent call. It does NOT serialize concurrent score
+    // events (e.g., the osaekomi 20s setTimeout in scoreboard.gateway.ts
+    // firing while a controller manually ends the match). Postgres
+    // default isolation (READ COMMITTED) doesn't prevent that race.
+    // Mitigation is tracked as ENG-A5 in TODOS.md.
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const updatedMatch = await tx.match.update({
+        where: { id: matchId },
+        data: updateData,
+        include: { competitor1: true, competitor2: true },
+      });
+
+      if (terminated && winnerId) {
+        await this.advanceWinner(tx, updatedMatch, winnerId);
+        if (updatedMatch.matId) {
+          await this.advanceMatQueue(tx, updatedMatch.matId, updatedMatch.id);
+        }
+      }
+
+      return updatedMatch;
     });
-
-    if (terminated && winnerId) {
-      await this.advanceWinner(updated, winnerId);
-      if (updated.matId) await this.advanceMatQueue(updated.matId, updated.id);
-    }
 
     return { match: updated, terminated, winMethod, winnerId };
   }
@@ -123,25 +149,30 @@ export class ScoreboardService {
     });
   }
 
-  async endMatch(matchId: string, winnerId: string, winMethod: string) {
+  async endMatch(matchId: string, winnerId: string, winMethod: WinMethod) {
     const match = await this.prisma.match.findUnique({ where: { id: matchId } });
     if (!match) throw new NotFoundException('Match not found');
     if (match.status !== 'ACTIVE') throw new BadRequestException('Match is not active');
 
-    const updated = await this.prisma.match.update({
-      where: { id: matchId },
-      data: {
-        status: 'COMPLETED',
-        winner: { connect: { id: winnerId } },
-        winMethod: winMethod as any,
-      },
-      include: { competitor1: true, competitor2: true },
+    // Same atomicity boundary as applyScoreEvent — the match update plus
+    // the downstream bracket/queue advancement either all commit or all
+    // roll back. See ENG-A2 in TODOS.md for the design rationale.
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.match.update({
+        where: { id: matchId },
+        data: {
+          status: 'COMPLETED',
+          winner: { connect: { id: winnerId } },
+          winMethod,
+        },
+        include: { competitor1: true, competitor2: true },
+      });
+
+      await this.advanceWinner(tx, updated, winnerId);
+      if (updated.matId) await this.advanceMatQueue(tx, updated.matId, updated.id);
+
+      return updated;
     });
-
-    await this.advanceWinner(updated, winnerId);
-    if (updated.matId) await this.advanceMatQueue(updated.matId, updated.id);
-
-    return updated;
   }
 
   /**
@@ -153,12 +184,12 @@ export class ScoreboardService {
    * No-op if the completed match wasn't the current one (manual override
    * scenario), or if the queue is empty.
    */
-  private async advanceMatQueue(matId: string, completedMatchId: string): Promise<void> {
-    const mat = await this.prisma.mat.findUnique({ where: { id: matId } });
+  private async advanceMatQueue(tx: TxClient, matId: string, completedMatchId: string): Promise<void> {
+    const mat = await tx.mat.findUnique({ where: { id: matId } });
     if (!mat) return;
     if (mat.currentMatchId !== completedMatchId) return;
 
-    const next = await this.prisma.match.findFirst({
+    const next = await tx.match.findFirst({
       where: {
         matId,
         status: 'SCHEDULED',
@@ -169,7 +200,7 @@ export class ScoreboardService {
       orderBy: [{ categoryId: 'asc' }, { sequenceNum: 'asc' }],
     });
 
-    await this.prisma.mat.update({
+    await tx.mat.update({
       where: { id: matId },
       data: { currentMatchId: next?.id ?? null },
     });
@@ -215,7 +246,44 @@ export class ScoreboardService {
     throw new BadRequestException('Competitor is not in this match');
   }
 
+  /*
+   * advanceWinner — bracket state machine after a match completes.
+   *
+   *   ┌──────────────┐
+   *   │ completed    │
+   *   │ match.phase  │
+   *   └──────┬───────┘
+   *          │
+   *          ▼ category.bracketType
+   *   ┌──────────────────────────────────────────────────────────────┐
+   *   │ ROUND_ROBIN          → no advancement (standings only)        │
+   *   │ SINGLE_REPECHAGE     → next.position via getNextSlot          │
+   *   │ POOLS                → advanceWinnerInPools                   │
+   *   │   ├─ POOL (any round)         → pool standings → create KO    │
+   *   │   ├─ KNOCKOUT_SF              → winner → FINAL, loser → BRONZE│
+   *   │   └─ KNOCKOUT_FINAL / BRONZE  → terminal                      │
+   *   │ DOUBLE_REPECHAGE     → advanceWinnerInDoubleRepechage         │
+   *   │   ├─ main R1..(QF-1)          → next slot                     │
+   *   │   ├─ QF                       → winner→SF; loser→repechage    │
+   *   │   ├─ SF                       → winner→FINAL; loser→bronze    │
+   *   │   ├─ REPECHAGE                → winner→bronze comp1           │
+   *   │   └─ KNOCKOUT_BRONZE / FINAL  → terminal                      │
+   *   │ GRAND_SLAM           → advanceWinnerInGrandSlam               │
+   *   │   ├─ POOL (non-final)         → next slot within pool         │
+   *   │   ├─ POOL final               → winner→SF; loser→same-half REP│
+   *   │   ├─ KNOCKOUT_SF              → winner→FINAL; loser→cross-half│
+   *   │   │                              BRONZE (slot 2)              │
+   *   │   ├─ REPECHAGE                → winner→same-half BRONZE slot 1│
+   *   │   └─ KNOCKOUT_FINAL / BRONZE  → terminal                      │
+   *   └──────────────────────────────────────────────────────────────┘
+   *
+   * All writes here run inside the transaction passed in `tx`. The caller
+   * (applyScoreEvent / endMatch) holds the boundary; this function and its
+   * helpers must NEVER reach for `this.prisma` directly — that would leak
+   * a non-transactional write and break atomicity.
+   */
   private async advanceWinner(
+    tx: TxClient,
     completedMatch: {
       id: string;
       categoryId: string;
@@ -228,7 +296,7 @@ export class ScoreboardService {
     },
     winnerId: string,
   ): Promise<void> {
-    const category = await this.prisma.category.findUnique({
+    const category = await tx.category.findUnique({
       where: { id: completedMatch.categoryId },
     });
     if (!category) return;
@@ -236,23 +304,23 @@ export class ScoreboardService {
     if (category.bracketType === 'ROUND_ROBIN') return;
 
     if (category.bracketType === 'POOLS') {
-      await this.advanceWinnerInPools(completedMatch, winnerId);
+      await this.advanceWinnerInPools(tx, completedMatch, winnerId);
       return;
     }
 
     if (category.bracketType === 'DOUBLE_REPECHAGE') {
-      await this.advanceWinnerInDoubleRepechage(completedMatch, winnerId);
+      await this.advanceWinnerInDoubleRepechage(tx, completedMatch, winnerId);
       return;
     }
 
     if (category.bracketType === 'GRAND_SLAM') {
-      await this.advanceWinnerInGrandSlam(completedMatch, winnerId);
+      await this.advanceWinnerInGrandSlam(tx, completedMatch, winnerId);
       return;
     }
 
     // SINGLE_REPECHAGE / legacy: simple slot advancement
     const next = getNextSlot(completedMatch.round, completedMatch.poolPosition);
-    const nextMatch = await this.prisma.match.findFirst({
+    const nextMatch = await tx.match.findFirst({
       where: {
         categoryId: completedMatch.categoryId,
         round: next.round,
@@ -265,7 +333,7 @@ export class ScoreboardService {
       ? { competitor1: { connect: { id: winnerId } } }
       : { competitor2: { connect: { id: winnerId } } };
 
-    await this.prisma.match.update({
+    await tx.match.update({
       where: { id: nextMatch.id },
       data: updateData,
     });
@@ -282,6 +350,7 @@ export class ScoreboardService {
    *   - KNOCKOUT_BRONZE / Final: terminal.
    */
   private async advanceWinnerInDoubleRepechage(
+    tx: TxClient,
     completedMatch: {
       id: string;
       categoryId: string;
@@ -304,11 +373,11 @@ export class ScoreboardService {
     if (completedMatch.phase === MatchPhase.REPECHAGE) {
       const half = completedMatch.poolGroup;
       if (!half) return;
-      const bronze = await this.prisma.match.findFirst({
+      const bronze = await tx.match.findFirst({
         where: { categoryId, phase: MatchPhase.KNOCKOUT_BRONZE, poolGroup: half },
       });
       if (!bronze) return;
-      await this.prisma.match.update({
+      await tx.match.update({
         where: { id: bronze.id },
         data: { competitor1: { connect: { id: winnerId } } },
       });
@@ -319,7 +388,7 @@ export class ScoreboardService {
     if (completedMatch.phase === MatchPhase.KNOCKOUT_BRONZE) return;
 
     // Main bracket: figure out which round this is (by counting competitors)
-    const competitors = await this.prisma.competitor.count({
+    const competitors = await tx.competitor.count({
       where: { categoryId, registrationStatus: { not: 'WITHDRAWN' } },
     });
     const totalRounds = drTotalRoundsFor(competitors);
@@ -328,7 +397,7 @@ export class ScoreboardService {
 
     // Always advance the winner to the next main-bracket slot.
     const next = getNextSlot(completedMatch.round, completedMatch.poolPosition);
-    const nextMatch = await this.prisma.match.findFirst({
+    const nextMatch = await tx.match.findFirst({
       where: {
         categoryId,
         round: next.round,
@@ -340,13 +409,13 @@ export class ScoreboardService {
       const updateData: Prisma.MatchUpdateInput = next.isCompetitor1
         ? { competitor1: { connect: { id: winnerId } } }
         : { competitor2: { connect: { id: winnerId } } };
-      await this.prisma.match.update({ where: { id: nextMatch.id }, data: updateData });
+      await tx.match.update({ where: { id: nextMatch.id }, data: updateData });
     }
 
     // QF loser → repechage of same half
     if (isQF && loserId) {
       const half = halfFor(completedMatch.round, completedMatch.poolPosition, totalRounds);
-      const rep = await this.prisma.match.findFirst({
+      const rep = await tx.match.findFirst({
         where: { categoryId, phase: MatchPhase.REPECHAGE, poolGroup: half },
       });
       if (rep) {
@@ -354,18 +423,18 @@ export class ScoreboardService {
         const slot: Prisma.MatchUpdateInput = rep.competitor1Id === null
           ? { competitor1: { connect: { id: loserId } } }
           : { competitor2: { connect: { id: loserId } } };
-        await this.prisma.match.update({ where: { id: rep.id }, data: slot });
+        await tx.match.update({ where: { id: rep.id }, data: slot });
       }
     }
 
     // SF loser → bronze of same half (as competitor2; repechage winner is competitor1)
     if (isSF && loserId) {
       const half = halfFor(completedMatch.round, completedMatch.poolPosition, totalRounds);
-      const bronze = await this.prisma.match.findFirst({
+      const bronze = await tx.match.findFirst({
         where: { categoryId, phase: MatchPhase.KNOCKOUT_BRONZE, poolGroup: half },
       });
       if (bronze) {
-        await this.prisma.match.update({
+        await tx.match.update({
           where: { id: bronze.id },
           data: { competitor2: { connect: { id: loserId } } },
         });
@@ -374,6 +443,7 @@ export class ScoreboardService {
   }
 
   private async advanceWinnerInPools(
+    tx: TxClient,
     completedMatch: {
       id: string;
       categoryId: string;
@@ -392,23 +462,23 @@ export class ScoreboardService {
         : completedMatch.competitor1Id;
 
     if (phase === MatchPhase.POOL) {
-      await this.maybeCreateKnockoutMatchesAfterPoolStage(categoryId);
+      await this.maybeCreateKnockoutMatchesAfterPoolStage(tx, categoryId);
       return;
     }
 
     if (phase === MatchPhase.KNOCKOUT_SF) {
       // Winner advances to FINAL, loser goes to BRONZE.
-      const finalMatch = await this.prisma.match.findFirst({
+      const finalMatch = await tx.match.findFirst({
         where: { categoryId, phase: MatchPhase.KNOCKOUT_FINAL },
       });
-      const bronzeMatch = await this.prisma.match.findFirst({
+      const bronzeMatch = await tx.match.findFirst({
         where: { categoryId, phase: MatchPhase.KNOCKOUT_BRONZE },
       });
       // Determine slot side based on which SF this was (poolPosition 1 → comp1, 2 → comp2)
       const isFirstSlot = completedMatch.poolPosition === 1;
 
       if (finalMatch) {
-        await this.prisma.match.update({
+        await tx.match.update({
           where: { id: finalMatch.id },
           data: isFirstSlot
             ? { competitor1: { connect: { id: winnerId } } }
@@ -416,7 +486,7 @@ export class ScoreboardService {
         });
       }
       if (bronzeMatch && loserId) {
-        await this.prisma.match.update({
+        await tx.match.update({
           where: { id: bronzeMatch.id },
           data: isFirstSlot
             ? { competitor1: { connect: { id: loserId } } }
@@ -452,6 +522,7 @@ export class ScoreboardService {
    *   KNOCKOUT_FINAL / KNOCKOUT_BRONZE: terminal.
    */
   private async advanceWinnerInGrandSlam(
+    tx: TxClient,
     completedMatch: {
       id: string;
       categoryId: string;
@@ -473,7 +544,7 @@ export class ScoreboardService {
 
     if (phase === MatchPhase.POOL) {
       // Find this pool's max round to detect "is this the pool final?"
-      const poolMaxRound = await this.prisma.match.findFirst({
+      const poolMaxRound = await tx.match.findFirst({
         where: { categoryId, phase: MatchPhase.POOL, poolGroup: completedMatch.poolGroup },
         orderBy: { round: 'desc' },
         select: { round: true },
@@ -484,7 +555,7 @@ export class ScoreboardService {
       if (!isPoolFinal) {
         // Internal pool advancement.
         const next = getNextSlot(completedMatch.round, completedMatch.poolPosition);
-        const nextMatch = await this.prisma.match.findFirst({
+        const nextMatch = await tx.match.findFirst({
           where: {
             categoryId,
             phase: MatchPhase.POOL,
@@ -494,7 +565,7 @@ export class ScoreboardService {
           },
         });
         if (nextMatch) {
-          await this.prisma.match.update({
+          await tx.match.update({
             where: { id: nextMatch.id },
             data: next.isCompetitor1
               ? { competitor1: { connect: { id: winnerId } } }
@@ -515,11 +586,11 @@ export class ScoreboardService {
       // Pool A/C → competitor1 of repechage; Pool B/D → competitor2.
       const repIsC1 = pool === 'A' || pool === 'C';
 
-      const sfMatch = await this.prisma.match.findFirst({
+      const sfMatch = await tx.match.findFirst({
         where: { categoryId, phase: MatchPhase.KNOCKOUT_SF, poolPosition: sfPosition },
       });
       if (sfMatch) {
-        await this.prisma.match.update({
+        await tx.match.update({
           where: { id: sfMatch.id },
           data: sfIsC1
             ? { competitor1: { connect: { id: winnerId } } }
@@ -528,11 +599,11 @@ export class ScoreboardService {
       }
 
       if (loserId) {
-        const repMatch = await this.prisma.match.findFirst({
+        const repMatch = await tx.match.findFirst({
           where: { categoryId, phase: MatchPhase.REPECHAGE, poolGroup: repHalf },
         });
         if (repMatch) {
-          await this.prisma.match.update({
+          await tx.match.update({
             where: { id: repMatch.id },
             data: repIsC1
               ? { competitor1: { connect: { id: loserId } } }
@@ -547,11 +618,11 @@ export class ScoreboardService {
       // Winner → FINAL. Loser → BRONZE of OPPOSITE half (cross-half), as
       // competitor2 (competitor1 is reserved for the repechage winner).
       const isFirstSlot = completedMatch.poolPosition === 1; // SF1 = top half winner
-      const finalMatch = await this.prisma.match.findFirst({
+      const finalMatch = await tx.match.findFirst({
         where: { categoryId, phase: MatchPhase.KNOCKOUT_FINAL },
       });
       if (finalMatch) {
-        await this.prisma.match.update({
+        await tx.match.update({
           where: { id: finalMatch.id },
           data: isFirstSlot
             ? { competitor1: { connect: { id: winnerId } } }
@@ -562,7 +633,7 @@ export class ScoreboardService {
       if (loserId) {
         // SF1 (top) loser → BRONZE BOTTOM. SF2 (bottom) loser → BRONZE TOP.
         const oppositeHalf = isFirstSlot ? 'BOTTOM' : 'TOP';
-        const bronzeMatch = await this.prisma.match.findFirst({
+        const bronzeMatch = await tx.match.findFirst({
           where: {
             categoryId,
             phase: MatchPhase.KNOCKOUT_BRONZE,
@@ -570,7 +641,7 @@ export class ScoreboardService {
           },
         });
         if (bronzeMatch) {
-          await this.prisma.match.update({
+          await tx.match.update({
             where: { id: bronzeMatch.id },
             data: { competitor2: { connect: { id: loserId } } },
           });
@@ -582,11 +653,11 @@ export class ScoreboardService {
     if (phase === MatchPhase.REPECHAGE) {
       // Repechage winner → BRONZE of SAME half, competitor1.
       const half = completedMatch.poolGroup; // 'TOP' | 'BOTTOM'
-      const bronzeMatch = await this.prisma.match.findFirst({
+      const bronzeMatch = await tx.match.findFirst({
         where: { categoryId, phase: MatchPhase.KNOCKOUT_BRONZE, poolGroup: half },
       });
       if (bronzeMatch) {
-        await this.prisma.match.update({
+        await tx.match.update({
           where: { id: bronzeMatch.id },
           data: { competitor1: { connect: { id: winnerId } } },
         });
@@ -606,15 +677,15 @@ export class ScoreboardService {
    * No-op if any pool match is still pending or if knockout matches already
    * exist (idempotent).
    */
-  private async maybeCreateKnockoutMatchesAfterPoolStage(categoryId: string): Promise<void> {
-    const poolMatches = await this.prisma.match.findMany({
+  private async maybeCreateKnockoutMatchesAfterPoolStage(tx: TxClient, categoryId: string): Promise<void> {
+    const poolMatches = await tx.match.findMany({
       where: { categoryId, phase: MatchPhase.POOL },
     });
     if (poolMatches.length === 0) return;
     if (!poolMatches.every((m) => m.status === 'COMPLETED')) return;
 
     // Idempotency: skip if knockout matches were already created
-    const existingKnockout = await this.prisma.match.findFirst({
+    const existingKnockout = await tx.match.findFirst({
       where: {
         categoryId,
         phase: { in: [MatchPhase.KNOCKOUT_SF, MatchPhase.KNOCKOUT_FINAL, MatchPhase.KNOCKOUT_BRONZE] },
@@ -643,7 +714,9 @@ export class ScoreboardService {
         status: m.status,
         round: m.round,
         poolPosition: m.poolPosition,
-        scores: (m.scores as unknown as StandingMatchScores) ?? null,
+        // m.scores is the canonical MatchScores shape — see scoreboard.types.ts.
+        // Cast is needed because Prisma JSON columns return `JsonValue`.
+        scores: (m.scores as unknown as MatchScores) ?? null,
       }));
       const ranked = rankRoundRobin(competitorIds, standingMatches);
       standingsByPool.set(group, ranked.map((r) => r.competitorId));
@@ -657,10 +730,10 @@ export class ScoreboardService {
 
     const format = knockoutFormatFor(competitorCount);
 
-    const category = await this.prisma.category.findUnique({ where: { id: categoryId } });
+    const category = await tx.category.findUnique({ where: { id: categoryId } });
     const duration = category ? 240 : 240;
     const competition = category
-      ? await this.prisma.competition.findUnique({ where: { id: category.competitionId } })
+      ? await tx.competition.findUnique({ where: { id: category.competitionId } })
       : null;
     const matchDuration = competition?.matchDuration ?? duration;
 
@@ -673,7 +746,7 @@ export class ScoreboardService {
 
     if (format === 'TWO_TEAM') {
       // 5-8 competitors: top 1 from each pool → final; 2nd from each → bronze
-      await this.prisma.match.create({
+      await tx.match.create({
         data: {
           categoryId,
           phase: MatchPhase.KNOCKOUT_FINAL,
@@ -685,7 +758,7 @@ export class ScoreboardService {
           sequenceNum: ++nextSeq,
         },
       });
-      await this.prisma.match.create({
+      await tx.match.create({
         data: {
           categoryId,
           phase: MatchPhase.KNOCKOUT_BRONZE,
@@ -701,7 +774,7 @@ export class ScoreboardService {
       // 9-15 competitors: top 2 from each pool → 4-team knockout
       // SF1: A1 vs B2 (poolPosition=1)
       // SF2: B1 vs A2 (poolPosition=2)
-      await this.prisma.match.create({
+      await tx.match.create({
         data: {
           categoryId,
           phase: MatchPhase.KNOCKOUT_SF,
@@ -713,7 +786,7 @@ export class ScoreboardService {
           sequenceNum: ++nextSeq,
         },
       });
-      await this.prisma.match.create({
+      await tx.match.create({
         data: {
           categoryId,
           phase: MatchPhase.KNOCKOUT_SF,
@@ -726,7 +799,7 @@ export class ScoreboardService {
         },
       });
       // Final and bronze get filled in once SFs complete (advanceWinnerInPools above)
-      await this.prisma.match.create({
+      await tx.match.create({
         data: {
           categoryId,
           phase: MatchPhase.KNOCKOUT_FINAL,
@@ -736,7 +809,7 @@ export class ScoreboardService {
           sequenceNum: ++nextSeq,
         },
       });
-      await this.prisma.match.create({
+      await tx.match.create({
         data: {
           categoryId,
           phase: MatchPhase.KNOCKOUT_BRONZE,
