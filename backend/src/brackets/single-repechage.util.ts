@@ -97,6 +97,26 @@ export function generateSingleRepechageMatches(competitorCount: number): Bracket
   return matches;
 }
 
+/*
+ * getNextSlot — single-elim slot routing.
+ *
+ *   Round R                    Round R+1
+ *   ──────────                  ──────────
+ *   pos 1 ┐                     pos 1 (slot.competitor1)
+ *   pos 2 ┘──── feeds ────►     pos 1 (slot.competitor2)
+ *   pos 3 ┐                     pos 2 (slot.competitor1)
+ *   pos 4 ┘──── feeds ────►     pos 2 (slot.competitor2)
+ *   pos 5 ┐                     pos 3 (slot.competitor1)
+ *   pos 6 ┘──── feeds ────►     pos 3 (slot.competitor2)
+ *
+ * Rules:
+ *   - nextPosition = ceil(currentPosition / 2)
+ *   - isCompetitor1 = (currentPosition is ODD)
+ *
+ * Odd positions go into the comp1 slot of the next match; even into comp2.
+ * The pairing is structurally seeded by `generateSeedings` above so the
+ * top seed survives to the final under a clean run.
+ */
 export function getNextSlot(
   round: number,
   position: number,
