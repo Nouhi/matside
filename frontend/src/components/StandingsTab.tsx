@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Trophy, Medal, AlertTriangle, Loader } from 'lucide-react';
+import { bracketLabel } from '@/lib/bracket';
 
 interface CompetitorRef {
   id: string;
@@ -23,7 +24,7 @@ interface StandingEntry {
 interface CategoryStandings {
   categoryId: string;
   categoryName: string;
-  bracketType: 'ROUND_ROBIN' | 'SINGLE_REPECHAGE' | 'DOUBLE_REPECHAGE';
+  bracketType: 'ROUND_ROBIN' | 'POOLS' | 'SINGLE_REPECHAGE' | 'DOUBLE_REPECHAGE' | 'GRAND_SLAM';
   status: 'IN_PROGRESS' | 'COMPLETE' | 'PENDING_PLAYOFF';
   standings: StandingEntry[];
 }
@@ -38,12 +39,6 @@ const STATUS_STYLES: Record<CategoryStandings['status'], string> = {
   IN_PROGRESS: 'bg-amber-100 text-amber-700',
   COMPLETE: 'bg-green-100 text-green-700',
   PENDING_PLAYOFF: 'bg-red-100 text-red-700',
-};
-
-const BRACKET_LABELS: Record<string, string> = {
-  ROUND_ROBIN: 'Round Robin',
-  SINGLE_REPECHAGE: 'Single Repechage',
-  DOUBLE_REPECHAGE: 'Double Repechage',
 };
 
 function rankBadge(rank: number) {
@@ -109,7 +104,7 @@ function CategoryStandingsBlock({ category }: { category: CategoryStandings }) {
       <div className="flex flex-wrap items-center gap-3 mb-3">
         <h3 className="font-semibold text-gray-900">{category.categoryName}</h3>
         <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">
-          {BRACKET_LABELS[category.bracketType] ?? category.bracketType}
+          {bracketLabel(category.bracketType)}
         </span>
         <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_STYLES[category.status]}`}>
           {category.status === 'PENDING_PLAYOFF' && (

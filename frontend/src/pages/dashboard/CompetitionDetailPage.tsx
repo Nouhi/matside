@@ -8,6 +8,7 @@ import { BracketView } from '@/components/BracketView';
 import { StandingsTab } from '@/components/StandingsTab';
 import { WeighInModal } from '@/components/WeighInModal';
 import type { IjfProjection } from '@/lib/ijf';
+import { bracketLabel, bracketPillClass } from '@/lib/bracket';
 
 interface Competition {
   id: string;
@@ -107,12 +108,6 @@ const STATUS_STYLES: Record<string, string> = {
   WEIGH_IN: 'bg-amber-100 text-amber-700',
   ACTIVE: 'bg-green-100 text-green-700',
   COMPLETED: 'bg-slate-100 text-slate-700',
-};
-
-const BRACKET_LABELS: Record<string, string> = {
-  ROUND_ROBIN: 'Round Robin',
-  SINGLE_REPECHAGE: 'Single Repechage',
-  DOUBLE_REPECHAGE: 'Double Repechage',
 };
 
 const STATUS_FLOW = ['DRAFT', 'REGISTRATION', 'WEIGH_IN', 'ACTIVE', 'COMPLETED'];
@@ -908,7 +903,7 @@ function CategoriesTab({
           <div className="flex-1 min-w-0">
             <p className="font-medium text-gray-900">{cat.name}</p>
             <p className="text-sm text-gray-500 mt-0.5">
-              {BRACKET_LABELS[cat.bracketType] || cat.bracketType} · {cat._count?.competitors ?? cat.competitors?.length ?? 0} competitors
+              {bracketLabel(cat.bracketType)} · {cat._count?.competitors ?? cat.competitors?.length ?? 0} competitors
             </p>
           </div>
           {/* Fixed widths on both control + pill so the right rail aligns
@@ -932,12 +927,8 @@ function CategoriesTab({
                 <option key={m.id} value={m.id}>Mat {m.number}</option>
               ))}
             </select>
-            <span className={`inline-flex justify-center min-w-[7rem] px-2.5 py-1 rounded-full text-xs font-medium ${
-              cat.bracketType === 'ROUND_ROBIN' ? 'bg-purple-100 text-purple-700' :
-              cat.bracketType === 'SINGLE_REPECHAGE' ? 'bg-orange-100 text-orange-700' :
-              'bg-red-100 text-red-700'
-            }`}>
-              {BRACKET_LABELS[cat.bracketType] || cat.bracketType}
+            <span className={`inline-flex justify-center min-w-[7rem] px-2.5 py-1 rounded-full text-xs font-medium ${bracketPillClass(cat.bracketType)}`}>
+              {bracketLabel(cat.bracketType)}
             </span>
           </div>
         </div>
