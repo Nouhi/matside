@@ -41,10 +41,13 @@ const STATUS_STYLES: Record<CategoryStandings['status'], string> = {
   PENDING_PLAYOFF: 'bg-red-100 text-red-700',
 };
 
-function rankBadge(rank: number) {
-  if (rank === 1) return <Trophy size={20} className="text-amber-500" />;
-  if (rank === 2) return <Medal size={20} className="text-gray-400" />;
-  if (rank === 3) return <Medal size={20} className="text-amber-700" />;
+// Exported so SpectatorStandings (mobile card layout) renders the same
+// medal icons as the organizer's desktop table — one rank language across
+// the product.
+export function rankBadge(rank: number, size = 20) {
+  if (rank === 1) return <Trophy size={size} className="text-amber-500" />;
+  if (rank === 2) return <Medal size={size} className="text-gray-400" />;
+  if (rank === 3) return <Medal size={size} className="text-amber-700" />;
   return <span className="inline-block text-center text-base font-semibold text-gray-500 tabular-nums">{rank}</span>;
 }
 
