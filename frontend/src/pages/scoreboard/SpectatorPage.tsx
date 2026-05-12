@@ -4,28 +4,55 @@ import { Activity, Trophy } from 'lucide-react';
 import { api } from '@/lib/api';
 import { SpectatorStandings } from '@/components/SpectatorStandings';
 
-interface MatState {
+// Shapes match the sanitized projections from PublicCompetitionsController.
+// Keep these in lockstep with backend/src/competitions/competitions.public.controller.ts
+// — if the schedule endpoint stops returning a field we render here, the UI
+// silently degrades (e.g. scores → all-zeros) rather than crashing.
+interface PublicCompetitor {
   id: string;
-  number: number;
-  currentMatchId: string | null;
-  currentMatch?: {
-    id: string;
-    status: string;
-    competitor1?: { firstName: string; lastName: string };
-    competitor2?: { firstName: string; lastName: string };
-    winner?: { firstName: string; lastName: string };
-    winMethod?: string;
-    scores?: {
-      competitor1: { wazaAri: number; yuko?: number; shido: number };
-      competitor2: { wazaAri: number; yuko?: number; shido: number };
-    };
-    goldenScore?: boolean;
-  };
+  firstName: string;
+  lastName: string;
+  club: string;
+  athleteId: string | null;
 }
 
-interface Competition {
+interface MatScores {
+  competitor1: { wazaAri: number; yuko?: number; shido: number };
+  competitor2: { wazaAri: number; yuko?: number; shido: number };
+}
+
+interface ScheduledMatch {
+  id: string;
+  round: number;
+  poolPosition: number;
+  status: string;
+  scores: MatScores | null;
+  winMethod: string | null;
+  goldenScore: boolean;
+  category: { id: string; name: string };
+  competitor1: PublicCompetitor | null;
+  competitor2: PublicCompetitor | null;
+  winner: PublicCompetitor | null;
+  etaSeconds: number | null;
+}
+
+interface MatSchedule {
+  id: string;
+  number: number;
+  categories: { id: string; name: string; _count: { competitors: number } }[];
+  currentMatch: ScheduledMatch | null;
+  nextMatches: unknown[];
+}
+
+interface PublicCompetition {
   id: string;
   name: string;
+  date?: string;
+  location?: string | null;
+  status?: string;
+  competitorCount?: number;
+  categoryCount?: number;
+  matCount?: number;
 }
 
 function MiniScore({
@@ -104,7 +131,22 @@ function CompetitorBand({
   );
 }
 
-function MatCard({ mat }: { mat: MatState }) {
+// Render the computed-on-read ETA. Generous rounding because the backend
+// ticks ETAs by Competition.matchDuration, not real elapsed time — spurious
+// precision would mislead spectators. Mirrors formatEta in PublicSchedule.tsx;
+// kept inline rather than imported so this page stays self-contained.
+function formatEta(seconds: number): string {
+  if (seconds <= 0) return 'starting';
+  if (seconds < 90) return '< 2 min';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `~${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remMin = minutes % 60;
+  if (remMin === 0) return `~${hours}h`;
+  return `~${hours}h ${remMin}m`;
+}
+
+function MatCard({ mat }: { mat: MatSchedule }) {
   const match = mat.currentMatch;
   const c1Name = match?.competitor1
     ? `${match.competitor1.lastName} ${match.competitor1.firstName}`
@@ -122,26 +164,43 @@ function MatCard({ mat }: { mat: MatState }) {
     yuko: match?.scores?.competitor2?.yuko ?? 0,
     shido: match?.scores?.competitor2?.shido ?? 0,
   };
-  const winner1 = match?.winner?.lastName === match?.competitor1?.lastName;
-  const winner2 = match?.winner?.lastName === match?.competitor2?.lastName;
+  // Compare by id, not lastName — two competitors can share a surname,
+  // especially in clubs with siblings. The auth endpoint's old code used
+  // lastName because it was convenient; the new shape gives us id everywhere.
+  const winnerId = match?.winner?.id;
+  const winner1 = !!winnerId && winnerId === match?.competitor1?.id;
+  const winner2 = !!winnerId && winnerId === match?.competitor2?.id;
+
+  // Only surface ETA on a SCHEDULED current match — "~3 min" alongside an
+  // ACTIVE match would be misleading (it's already happening), and on a
+  // COMPLETED card it's meaningless. null/undefined etaSeconds hides the pill.
+  const showEta =
+    match?.status === 'SCHEDULED' && typeof match.etaSeconds === 'number';
 
   return (
     <div className="bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
       <div className="flex items-center justify-between px-4 py-2 bg-gray-900 text-white">
         <span className="font-bold">Mat {mat.number}</span>
         {match && (
-          <span
-            className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
-              match.status === 'ACTIVE'
-                ? 'bg-green-500 text-white'
-                : match.status === 'COMPLETED'
-                  ? 'bg-gray-500 text-white'
-                  : 'bg-blue-500 text-white'
-            }`}
-          >
-            {match.status}
-            {match.goldenScore && ' · GS'}
-          </span>
+          <div className="flex items-center gap-2">
+            {showEta && (
+              <span className="text-[10px] font-mono text-gray-400 tabular-nums">
+                {formatEta(match.etaSeconds as number)}
+              </span>
+            )}
+            <span
+              className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                match.status === 'ACTIVE'
+                  ? 'bg-green-500 text-white'
+                  : match.status === 'COMPLETED'
+                    ? 'bg-gray-500 text-white'
+                    : 'bg-blue-500 text-white'
+              }`}
+            >
+              {match.status}
+              {match.goldenScore && ' · GS'}
+            </span>
+          </div>
         )}
       </div>
 
@@ -168,8 +227,8 @@ type SpectatorView = 'live' | 'standings';
 
 export function SpectatorPage() {
   const { competitionId } = useParams<{ competitionId: string }>();
-  const [competition, setCompetition] = useState<Competition | null>(null);
-  const [mats, setMats] = useState<MatState[]>([]);
+  const [competition, setCompetition] = useState<PublicCompetition | null>(null);
+  const [mats, setMats] = useState<MatSchedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(false);
   // F7.D2: in-page panel switching, not URL routing. Spectator stays on
@@ -179,12 +238,16 @@ export function SpectatorPage() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const offlineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Hit the public/anonymous projections so a spectator URL works without a
+  // login. Both endpoints are PII-sanitized in PublicCompetitionsController
+  // (no pin, no email) and ship Cache-Control headers for ETag-friendly
+  // polling. See competitions.public.controller.ts for the full shape.
   const fetchData = async () => {
     if (!competitionId) return;
     try {
       const [compData, matsData] = await Promise.all([
-        api.get<Competition>(`/competitions/${competitionId}`),
-        api.get<MatState[]>(`/competitions/${competitionId}/mats`),
+        api.get<PublicCompetition>(`/public/competitions/${competitionId}`),
+        api.get<MatSchedule[]>(`/public/competitions/${competitionId}/schedule`),
       ]);
       setCompetition(compData);
       setMats(matsData);
@@ -217,7 +280,7 @@ export function SpectatorPage() {
     );
   }
 
-  const activeMats = mats.filter((m) => m.currentMatchId);
+  const activeMats = mats.filter((m) => m.currentMatch);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -252,11 +315,9 @@ export function SpectatorPage() {
               </div>
             )}
             <div className="flex flex-col gap-4">
-              {mats
-                .filter((m) => m.currentMatchId)
-                .map((mat) => (
-                  <MatCard key={mat.id} mat={mat} />
-                ))}
+              {activeMats.map((mat) => (
+                <MatCard key={mat.id} mat={mat} />
+              ))}
             </div>
           </div>
         )}

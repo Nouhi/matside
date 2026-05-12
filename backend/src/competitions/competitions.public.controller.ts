@@ -192,9 +192,19 @@ export class PublicCompetitionsController {
                 round: true,
                 poolPosition: true,
                 status: true,
+                // Live scoring fields — these are all spectator-safe (they
+                // appear on the arena scoreboard). `scores` is a JSON column
+                // shaped like { competitor1: {wazaAri, yuko, shido},
+                // competitor2: {...} }. `winMethod` / `goldenScore` are the
+                // result banner + GS badge. `winner` is sanitized below the
+                // same way `competitor1`/`competitor2` are.
+                scores: true,
+                winMethod: true,
+                goldenScore: true,
                 category: { select: { id: true, name: true } },
                 competitor1: { select: { id: true, firstName: true, lastName: true, club: true, athleteId: true } },
                 competitor2: { select: { id: true, firstName: true, lastName: true, club: true, athleteId: true } },
+                winner: { select: { id: true, firstName: true, lastName: true, club: true, athleteId: true } },
               },
             })
           : null;
