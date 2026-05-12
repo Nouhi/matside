@@ -77,24 +77,182 @@ function DisconnectBanner({ visible }: { visible: boolean }) {
   );
 }
 
-function WinBanner({ winMethod }: { winMethod?: string }) {
+/**
+ * F3.C — Win-method-specific banner.
+ *
+ * Fires ONLY when match.status === 'COMPLETED' && match.winMethod is set.
+ * Never on score events mid-match (that was the original spec ambiguity).
+ *
+ * IPPON has the dramatic `IpponOverlay` (4s full-screen animation). The
+ * WinBanner for IPPON is the static post-overlay label — no animate-pulse.
+ * All variants are static; the urgency cue is color + typography, not motion.
+ *
+ * Covers all six Prisma WinMethod enum values explicitly (see
+ * backend/prisma/schema.prisma). Anything else falls into a generic
+ * fallback with a console warning so we catch new enum values early.
+ */
+type WinMethodValue =
+  | 'IPPON'
+  | 'WAZA_ARI'
+  | 'DECISION'
+  | 'HANSOKU_MAKE'
+  | 'FUSEN_GACHI'
+  | 'KIKEN_GACHI';
+
+interface WinVariant {
+  copy: string;
+  subtitle?: string;
+  bg: string; // hex
+  fg: string; // hex
+  ariaLabel: string;
+}
+
+const WIN_VARIANTS: Record<WinMethodValue, WinVariant> = {
+  IPPON: {
+    copy: 'IPPON',
+    bg: '#c9a64b',
+    fg: '#000',
+    ariaLabel: 'Match won by ippon',
+  },
+  WAZA_ARI: {
+    copy: 'WAZA-ARI',
+    bg: '#d4b669',
+    fg: '#000',
+    ariaLabel: 'Match won by waza-ari',
+  },
+  DECISION: {
+    // Rendered specially below: vertical blue/white split with winner's
+    // name on their side. The bg/fg here are unused for DECISION but kept
+    // for type completeness.
+    copy: 'DECISION',
+    bg: '#0a3a7a',
+    fg: '#ffffff',
+    ariaLabel: 'Match decided by hantei',
+  },
+  HANSOKU_MAKE: {
+    copy: 'HANSOKU-MAKE',
+    subtitle: 'DISQUALIFICATION',
+    bg: '#991b1b',
+    fg: '#ffffff',
+    ariaLabel: 'Match ended by disqualification',
+  },
+  FUSEN_GACHI: {
+    copy: 'FUSEN-GACHI',
+    subtitle: 'FORFEIT',
+    bg: '#525252',
+    fg: '#ffffff',
+    ariaLabel: 'Match won by forfeit (opponent did not appear)',
+  },
+  KIKEN_GACHI: {
+    copy: 'KIKEN-GACHI',
+    subtitle: 'WITHDRAWAL',
+    bg: '#525252',
+    fg: '#ffffff',
+    ariaLabel: 'Match won by withdrawal',
+  },
+};
+
+function WinBanner({
+  winMethod,
+  winnerIsCompetitor1,
+  winnerName,
+}: {
+  winMethod?: string;
+  winnerIsCompetitor1?: boolean;
+  winnerName?: string;
+}) {
   if (!winMethod) return null;
 
-  const isHansoku = winMethod === 'HANSOKU_MAKE';
-  const borderColor = isHansoku ? 'border-red-500' : 'border-yellow-400';
-  const textColor = isHansoku ? 'text-red-500' : 'text-yellow-400';
-  const glow = isHansoku
-    ? 'drop-shadow-[0_0_20px_rgba(239,68,68,0.6)]'
-    : 'drop-shadow-[0_0_20px_rgba(250,204,21,0.55)]';
+  const variant = WIN_VARIANTS[winMethod as WinMethodValue];
+  if (!variant) {
+    // New enum value the frontend doesn't know about — surface it so the
+    // gap is obvious in DevTools, then fall through to a generic banner.
+    // eslint-disable-next-line no-console
+    console.warn(`[WinBanner] unknown winMethod="${winMethod}" — update WIN_VARIANTS`);
+    return (
+      <div
+        role="status"
+        aria-label={`Match ended: ${winMethod}`}
+        className="bg-black border-t-2 border-yellow-400 flex items-center justify-center py-3"
+      >
+        <span
+          className="font-black text-yellow-400 uppercase"
+          style={{ fontSize: 'clamp(36px, 6vw, 88px)', lineHeight: 1, letterSpacing: '0.32em' }}
+        >
+          {winMethod.replace(/_/g, ' ')}
+        </span>
+      </div>
+    );
+  }
 
+  // DECISION renders as a vertical split (blue on competitor1 side, white
+  // on competitor2 side). The winner's name shows on their half so the
+  // venue sees who took the call.
+  if (winMethod === 'DECISION') {
+    return (
+      <div
+        role="status"
+        aria-label={`${variant.ariaLabel}${winnerName ? `, ${winnerName}` : ''}`}
+        className="border-t-2 border-yellow-400 flex items-stretch py-3"
+      >
+        <div
+          className="flex-1 flex items-center justify-center"
+          style={{ backgroundColor: '#0a3a7a' }}
+        >
+          <span
+            className="font-black text-white uppercase"
+            style={{ fontSize: 'clamp(28px, 5vw, 64px)', lineHeight: 1, letterSpacing: '0.18em' }}
+          >
+            {winnerIsCompetitor1 ? (winnerName ?? 'WINNER') : 'DECISION'}
+          </span>
+        </div>
+        <div
+          className="flex-1 flex items-center justify-center"
+          style={{ backgroundColor: '#ffffff' }}
+        >
+          <span
+            className="font-black uppercase"
+            style={{
+              color: '#0a3a7a',
+              fontSize: 'clamp(28px, 5vw, 64px)',
+              lineHeight: 1,
+              letterSpacing: '0.18em',
+            }}
+          >
+            {winnerIsCompetitor1 === false ? (winnerName ?? 'WINNER') : 'DECISION'}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // All other variants: single-color band, optional subtitle. Static — the
+  // IPPON drama lives in IpponOverlay; this is the post-drama label.
   return (
-    <div className={`bg-black border-t-2 ${borderColor} flex items-center justify-center py-3 animate-pulse`}>
+    <div
+      role="status"
+      aria-label={variant.ariaLabel}
+      className="border-t-2 border-yellow-400 flex flex-col items-center justify-center py-3"
+      style={{ backgroundColor: variant.bg, color: variant.fg }}
+    >
       <span
-        className={`font-black ${textColor} uppercase ${glow}`}
+        className="font-black uppercase"
         style={{ fontSize: 'clamp(36px, 6vw, 88px)', lineHeight: 1, letterSpacing: '0.32em' }}
       >
-        {winMethod.replace(/_/g, ' ')}
+        {variant.copy}
       </span>
+      {variant.subtitle && (
+        <span
+          className="font-bold uppercase mt-1"
+          style={{
+            fontSize: 'clamp(14px, 1.6vw, 24px)',
+            letterSpacing: '0.36em',
+            opacity: 0.85,
+          }}
+        >
+          {variant.subtitle}
+        </span>
+      )}
     </div>
   );
 }
@@ -298,10 +456,45 @@ function CompetitorRow({
 function CenterBar({
   timer,
   goldenScore,
+  active,
 }: {
   timer: number;
   goldenScore: boolean;
+  // Only ACTIVE matches get threshold colors + pulse. Pre-match (SCHEDULED)
+  // and post-match (COMPLETED) show the timer in plain white — no urgency
+  // theatre when nothing's at stake.
+  active: boolean;
 }) {
+  // F3.B gating — see TODOS.md Bundle 2 spec. The `timer > 0` guard is
+  // load-bearing: today's timer effect clamps remaining to 0 during
+  // golden score, so without this clamp the 0s flash would fire once on
+  // every GS transition.
+  const showThresholdTreatment = active && !goldenScore && timer > 0;
+  const showZeroFlash = active && !goldenScore && timer === 0;
+
+  let colorClass = 'text-white';
+  let animationClass = '';
+  if (showThresholdTreatment) {
+    if (timer <= 10) {
+      colorClass = '';
+      animationClass = 'timer-pulse';
+    } else if (timer <= 30) {
+      colorClass = '';
+    }
+  } else if (showZeroFlash) {
+    colorClass = '';
+    animationClass = 'timer-flash';
+  }
+
+  // Explicit hex on threshold states so the color survives the animation
+  // even if Tailwind's text-* gets stripped by the pulse opacity cycle.
+  const inlineColor = (() => {
+    if (showZeroFlash) return '#ef4444'; // red — final flash
+    if (showThresholdTreatment && timer <= 10) return '#ef4444'; // red — last 10s
+    if (showThresholdTreatment && timer <= 30) return '#fbbf24'; // amber — last 30s
+    return undefined;
+  })();
+
   return (
     <div className="flex-1 bg-black flex items-center justify-center px-6 relative gap-8 min-h-0">
       {goldenScore && (
@@ -313,11 +506,71 @@ function CenterBar({
         </span>
       )}
       <span
-        className="font-mono font-black text-white tabular-nums"
-        style={{ fontSize: 'clamp(120px, 22vw, 320px)', lineHeight: 1 }}
+        className={`font-mono font-black tabular-nums ${colorClass} ${animationClass}`}
+        style={{
+          fontSize: 'clamp(120px, 22vw, 320px)',
+          lineHeight: 1,
+          ...(inlineColor ? { color: inlineColor } : {}),
+        }}
       >
         {formatTime(timer)}
       </span>
+    </div>
+  );
+}
+
+/**
+ * F1.B — "STARTING SOON" overlay on SCHEDULED matches.
+ *
+ * Replaces the CenterBar (just the timer slot, not the whole screen) when
+ * the match is assigned but hasn't started. Competitor rows + category
+ * strip remain visible so the venue can see who's about to fight.
+ *
+ * Trigger lives in the main render: SCHEDULED + both competitors known.
+ * If a SCHEDULED match has TBD slots, this does NOT render — the live
+ * scoreboard layout shows with a placeholder name instead.
+ */
+function StartingSoonBar({
+  categoryName,
+  bout,
+}: {
+  categoryName?: string;
+  bout?: string;
+}) {
+  const subtextParts = [categoryName, bout].filter(Boolean);
+  const subtext = subtextParts.join(' · ');
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex-1 flex flex-col items-center justify-center px-6 relative gap-3 min-h-0"
+      style={{ background: 'linear-gradient(180deg, #000000 0%, #0a0f1f 100%)' }}
+    >
+      <span
+        className="font-black uppercase"
+        style={{
+          color: '#c9a64b',
+          fontSize: 'clamp(64px, 9vw, 140px)',
+          fontWeight: 900,
+          letterSpacing: '0.05em',
+          lineHeight: 1,
+        }}
+      >
+        STARTING SOON
+      </span>
+      {subtext && (
+        <span
+          className="font-semibold uppercase"
+          style={{
+            color: 'rgba(255, 255, 255, 0.7)',
+            fontSize: 'clamp(20px, 2.5vw, 40px)',
+            letterSpacing: '0.3em',
+          }}
+        >
+          {subtext}
+        </span>
+      )}
     </div>
   );
 }
@@ -414,7 +667,22 @@ export function DisplayPage() {
         isBlue
       />
 
-      <CenterBar timer={timerSeconds} goldenScore={!!matchState.goldenScore} />
+      {/* F1.B — STARTING SOON overlay replaces the timer slot (only the
+          timer slot, not the whole screen) when the match is assigned but
+          hasn't started AND both competitors are known. SCHEDULED matches
+          with a TBD slot fall through to the live layout below — the
+          assertion catches a bracket placeholder, not a real pre-match. */}
+      {matchState.status === 'SCHEDULED' &&
+      matchState.competitor1 &&
+      matchState.competitor2 ? (
+        <StartingSoonBar categoryName={categoryName} />
+      ) : (
+        <CenterBar
+          timer={timerSeconds}
+          goldenScore={!!matchState.goldenScore}
+          active={matchState.status === 'ACTIVE'}
+        />
+      )}
 
       <CompetitorRow
         name={comp2Name}
@@ -434,7 +702,13 @@ export function DisplayPage() {
       )}
 
       {matchState.status === 'COMPLETED' && !ipponPlaying && (
-        <WinBanner winMethod={matchState.winMethod} />
+        <WinBanner
+          winMethod={matchState.winMethod}
+          winnerIsCompetitor1={winner1}
+          winnerName={
+            winner1 ? comp1Name : winner2 ? comp2Name : undefined
+          }
+        />
       )}
 
       <OsaekomiBar osaekomi={osaekomi} />
