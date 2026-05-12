@@ -166,12 +166,16 @@ describe('PublicCompetitionsController — PII / secret leakage boundary', () =>
         round: 1,
         poolPosition: 1,
         status: 'ACTIVE',
+        scores: null,
+        winMethod: null,
+        goldenScore: false,
         category: { id: 'cat-1', name: '-73kg' },
         competitor1: {
           id: 'c1',
           firstName: 'Hiroshi',
           lastName: 'Tanaka',
           club: 'Tokyo JC',
+          athleteId: null,
           // Note: would be omitted by Prisma `select` even if returned by mock.
         },
         competitor2: {
@@ -179,7 +183,9 @@ describe('PublicCompetitionsController — PII / secret leakage boundary', () =>
           firstName: 'Kenji',
           lastName: 'Sato',
           club: 'Osaka JC',
+          athleteId: null,
         },
+        winner: null,
       });
       prisma.match.findMany.mockResolvedValue([]);
 
@@ -189,6 +195,84 @@ describe('PublicCompetitionsController — PII / secret leakage boundary', () =>
       const json = JSON.stringify(result);
       expect(json).not.toContain('email');
       expect(json).not.toContain('@'); // sanity: no email-like string
+    });
+
+    it('exposes live scoring fields (scores, winMethod, goldenScore, winner) for the spectator scoreboard', async () => {
+      // The SpectatorPage live-scoreboard renders waza-ari / yuko / shido,
+      // the GS badge, the win-method banner, and the winner ring. Those
+      // fields are spectator-safe (no PII) and must flow through the public
+      // schedule endpoint or the page silently degrades to a schedule view.
+      prisma.competition.findUnique.mockResolvedValue({ id: 'c-1' });
+      prisma.mat.findMany.mockResolvedValue([
+        {
+          id: 'mat-1',
+          number: 1,
+          currentMatchId: 'm-1',
+          categories: [],
+        },
+      ]);
+      prisma.match.findUnique.mockResolvedValue({
+        id: 'm-1',
+        round: 2,
+        poolPosition: 1,
+        status: 'COMPLETED',
+        scores: {
+          competitor1: { wazaAri: 1, yuko: 0, shido: 2 },
+          competitor2: { wazaAri: 0, yuko: 0, shido: 1 },
+        },
+        winMethod: 'WAZA_ARI',
+        goldenScore: true,
+        category: { id: 'cat-1', name: '-73kg' },
+        competitor1: {
+          id: 'c1',
+          firstName: 'Hiroshi',
+          lastName: 'Tanaka',
+          club: 'Tokyo JC',
+          athleteId: 'a1',
+        },
+        competitor2: {
+          id: 'c2',
+          firstName: 'Kenji',
+          lastName: 'Sato',
+          club: 'Osaka JC',
+          athleteId: null,
+        },
+        winner: {
+          id: 'c1',
+          firstName: 'Hiroshi',
+          lastName: 'Tanaka',
+          club: 'Tokyo JC',
+          athleteId: 'a1',
+        },
+      });
+      prisma.match.findMany.mockResolvedValue([]);
+
+      const res = makeRes();
+      const result = (await controller.getSchedule('c-1', makeReq(), res)) as Array<{
+        currentMatch: {
+          scores: { competitor1: { wazaAri: number; shido: number } } | null;
+          winMethod: string | null;
+          goldenScore: boolean;
+          winner: { id: string } | null;
+        } | null;
+      }>;
+
+      expect(result).toHaveLength(1);
+      const cm = result[0].currentMatch;
+      expect(cm).not.toBeNull();
+      expect(cm!.scores).toEqual({
+        competitor1: { wazaAri: 1, yuko: 0, shido: 2 },
+        competitor2: { wazaAri: 0, yuko: 0, shido: 1 },
+      });
+      expect(cm!.winMethod).toBe('WAZA_ARI');
+      expect(cm!.goldenScore).toBe(true);
+      expect(cm!.winner).toEqual(
+        expect.objectContaining({ id: 'c1', firstName: 'Hiroshi', athleteId: 'a1' }),
+      );
+      // The winner projection must use the same sanitized shape — no email
+      // leakage if Prisma ever starts auto-including relations.
+      const json = JSON.stringify(result);
+      expect(json).not.toContain('email');
     });
   });
 
