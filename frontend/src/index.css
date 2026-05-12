@@ -69,3 +69,39 @@
     animation: none;
   }
 }
+
+/* F3.B — Final 30s timer pulse on Display.
+ *
+ * Threshold visuals (gated in CenterBar on
+ * status === 'ACTIVE' && !goldenScore && timerSeconds > 0):
+ *   ≤ 30s, > 10s   → amber text (#fbbf24), no animation
+ *   ≤ 10s, > 0s    → red text (#ef4444), `.timer-pulse` (opacity cycle)
+ *   = 0s           → red text, `.timer-flash` (3 quick blinks, then static)
+ *
+ * Under prefers-reduced-motion: color change is the urgency cue, animation
+ * is suppressed.
+ */
+@keyframes timer-pulse-warn {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes timer-flash-end {
+  0%, 33%, 66%, 100% { opacity: 1; }
+  16%, 50%, 83% { opacity: 0.2; }
+}
+
+.timer-pulse {
+  animation: timer-pulse-warn 1s ease-in-out infinite;
+}
+
+.timer-flash {
+  animation: timer-flash-end 750ms ease-in-out 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .timer-pulse,
+  .timer-flash {
+    animation: none;
+  }
+}
