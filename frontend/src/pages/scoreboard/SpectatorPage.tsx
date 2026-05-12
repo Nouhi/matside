@@ -1,6 +1,8 @@
 import { useParams } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
+import { Activity, Trophy } from 'lucide-react';
 import { api } from '@/lib/api';
+import { SpectatorStandings } from '@/components/SpectatorStandings';
 
 interface MatState {
   id: string;
@@ -162,12 +164,18 @@ function MatCard({ mat }: { mat: MatState }) {
   );
 }
 
+type SpectatorView = 'live' | 'standings';
+
 export function SpectatorPage() {
   const { competitionId } = useParams<{ competitionId: string }>();
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [mats, setMats] = useState<MatState[]>([]);
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(false);
+  // F7.D2: in-page panel switching, not URL routing. Spectator stays on
+  // the same /spectator/:id route across tab presses, so a refresh on
+  // either panel returns to "Live Mats" — the most useful default.
+  const [view, setView] = useState<SpectatorView>('live');
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const offlineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -217,7 +225,9 @@ export function SpectatorPage() {
         <h1 className="text-xl font-bold text-gray-900">
           {competition?.name || 'Competition'}
         </h1>
-        <p className="text-sm text-gray-500 mt-0.5">Live Scores</p>
+        <p className="text-sm text-gray-500 mt-0.5">
+          {view === 'live' ? 'Live Scores' : 'Standings'}
+        </p>
       </header>
 
       {offline && (
@@ -226,25 +236,92 @@ export function SpectatorPage() {
         </div>
       )}
 
-      <div className="p-4 max-w-lg mx-auto">
-        {mats.length === 0 && (
-          <div className="text-center py-12 text-gray-400">
-            No mats configured for this competition
+      {/* pb-20 = 56px tab-bar + safe-area + breathing room so the last
+          card isn't covered by the fixed nav. */}
+      <div className="pb-20">
+        {view === 'live' && (
+          <div className="p-4 max-w-lg mx-auto">
+            {mats.length === 0 && (
+              <div className="text-center py-12 text-gray-400">
+                No mats configured for this competition
+              </div>
+            )}
+            {mats.length > 0 && activeMats.length === 0 && (
+              <div className="text-center py-12 text-gray-400">
+                Waiting for matches to begin
+              </div>
+            )}
+            <div className="flex flex-col gap-4">
+              {mats
+                .filter((m) => m.currentMatchId)
+                .map((mat) => (
+                  <MatCard key={mat.id} mat={mat} />
+                ))}
+            </div>
           </div>
         )}
-        {mats.length > 0 && activeMats.length === 0 && (
-          <div className="text-center py-12 text-gray-400">
-            Waiting for matches to begin
+
+        {view === 'standings' && competitionId && (
+          <div className="pt-4">
+            <SpectatorStandings competitionId={competitionId} />
           </div>
         )}
-        <div className="flex flex-col gap-4">
-          {mats
-            .filter((m) => m.currentMatchId)
-            .map((mat) => (
-              <MatCard key={mat.id} mat={mat} />
-            ))}
-        </div>
       </div>
+
+      {/* F7.D2 — bottom-fixed navigation. Page-level navigation, not
+          in-page tabs (URL stays the same, but the role is navigational).
+          Each button is ≥ 44×44px per Apple HIG. The safe-area inset
+          handles iOS notch / home indicator. */}
+      <nav
+        role="navigation"
+        aria-label="Spectator views"
+        className="fixed bottom-0 inset-x-0 z-30 flex items-stretch bg-[#0a0f1f] border-t border-gray-800"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <SpectatorTabButton
+          icon={<Activity size={20} />}
+          label="Live Mats"
+          active={view === 'live'}
+          onClick={() => setView('live')}
+        />
+        <SpectatorTabButton
+          icon={<Trophy size={20} />}
+          label="Standings"
+          active={view === 'standings'}
+          onClick={() => setView('standings')}
+        />
+      </nav>
     </div>
+  );
+}
+
+function SpectatorTabButton({
+  icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? 'page' : undefined}
+      className="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 min-h-[56px] transition-colors"
+      style={{
+        // 3px top border in IJF gold marks the active tab. Inactive tabs
+        // have a transparent border the same width so labels don't shift
+        // between states.
+        borderTop: active ? '3px solid #c9a64b' : '3px solid transparent',
+        color: active ? '#c9a64b' : '#9ca3af',
+      }}
+    >
+      {icon}
+      <span className="text-[11px] font-semibold uppercase tracking-wider">{label}</span>
+    </button>
   );
 }
