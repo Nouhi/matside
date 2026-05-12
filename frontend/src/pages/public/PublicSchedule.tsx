@@ -14,11 +14,25 @@ interface ScheduledMatch {
   id: string;
   round: number;
   poolPosition: number;
+  // `sequenceNum` and `status` are only set on next-matches and current-match
+  // respectively; the public schedule endpoint returns two different shapes
+  // (see backend/src/competitions/competitions.public.controller.ts).
   sequenceNum?: number;
   status?: string;
   category: { id: string; name: string };
   competitor1: PublicCompetitor | null;
   competitor2: PublicCompetitor | null;
+  // Live scoring fields — only present on `currentMatch`, never on
+  // `nextMatches`. The PublicSchedule UI doesn't render these today, but
+  // they're available if we ever want to show "1-0" next to the "Now" panel
+  // or surface the GS badge here too.
+  scores?: {
+    competitor1: { wazaAri: number; yuko?: number; shido: number };
+    competitor2: { wazaAri: number; yuko?: number; shido: number };
+  } | null;
+  winMethod?: string | null;
+  goldenScore?: boolean;
+  winner?: PublicCompetitor | null;
   // Computed-on-read ETA in seconds. 0 means "now / currently fighting".
   // null means the match isn't in any mat queue yet.
   etaSeconds: number | null;
