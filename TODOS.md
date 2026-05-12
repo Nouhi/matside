@@ -1,240 +1,21 @@
 <!-- /autoplan restore point: /Users/omar/.gstack/projects/Nouhi-matside/claude-focused-napier-b01ea5-autoplan-restore-20260511-063024.md -->
 # matside TODOs
 
-Triaged via `/autoplan` on 2026-05-11 (CEO + Design + Eng + DX pipeline, codex unavailable, single-voice consensus). Starting backlog: 21 items (14 design + 7 eng) from `/plan-design-review` 2026-05-07. Triage outcome: ship 4 bundles (~10 engineer-hours), defer 2, kill 8, surface 7 missing roadmap items.
+Triaged via `/autoplan` on 2026-05-11 from a starting backlog of 21 items (14 design + 7 eng) deferred from `/plan-design-review` 2026-05-07. Outcome: 4 bundles shipped, 3 items deferred, 8 killed, 7 strategic roadmap gaps surfaced.
+
+**Status (2026-05-12):** all 4 ship bundles merged via PRs #16–#20. Detailed bundle specs live in git history (see audit trail at the bottom + the autoplan restore point referenced in the HTML comment above). The live content of this file is the DEFER / KILLED / MISSING sections below.
 
 Approved mockup reference: `~/.gstack/projects/Nouhi-matside/designs/scoreboard-display-20260506/variant-A.html` (Variant A — Classic IJF Broadcast).
 
----
+## SHIPPED via /autoplan (2026-05-11 → 2026-05-12)
 
-## SHIP NOW — 4 Bundles (~10 engineer-hours total)
-
-**Recommended PR order** (sharpened in Phase 3 eng review): **1 → 4 in parallel → 2 → 3**.
-- Bundle 1 first (biggest review surface, exposes `WinMethod` literal union the frontend can consume in Bundle 2).
-- Bundle 4 can ship in parallel with Bundle 1 — zero dependencies, 10-min Tailwind class change.
-- Bundle 2 depends on Bundle 1's frontend `WinMethod` union (otherwise Bundle 2 duplicates the union).
-- Bundle 3 is independent of Bundles 2 and 4.
-
-Each bundle is one PR.
-
-### Bundle 1 — Type hygiene + concurrency hardening (PR 1, ~2h CC)
-
-Ships: **ENG-Q1, ENG-Q2, ENG-Q4, ENG-A2, ENG-A4**. Specs sharpened during `/autoplan` Phase 3 — original spec had 3 critical errors (wrong `$transaction` form, duplicate `MatchScores` in standings, missing socket-boundary validation).
-
-#### ENG-Q1 — Single source of truth for `MatchScores` types
-
-- Create `backend/src/scoreboard/scoreboard.types.ts`. Export `MatchScores` (with `yuko: number` REQUIRED, not optional) and `CompetitorScore`.
-- **Delete the duplicate `MatchScores` in `backend/src/standings/standings.types.ts:1-4`.** Standings imports from scoreboard. The current duplicate has `yuko?: number` (optional) which is silently incompatible — it's only working today via an `as unknown as StandingMatchScores` cast at `scoreboard.service.ts:646`. Drop the cast as part of this work.
-- Frontend `useScoreboard.ts` keeps an identical local copy with comment `// MUST MATCH backend/src/scoreboard/scoreboard.types.ts`. Frontend tsconfig has no path alias to backend; a shared `packages/types` workspace is overkill for 2 interfaces.
-- **Also widen the frontend `winMethod` type** from `string` to literal union `'IPPON' | 'WAZA_ARI' | 'DECISION' | 'HANSOKU_MAKE' | 'FUSEN_GACHI' | 'KIKEN_GACHI'` so Bundle 2's variant switch can be type-safe. Same "must match backend" comment.
-- **Add a satisfies-style test** at `frontend/src/hooks/useScoreboard.test.ts` that asserts the frontend `MatchScores` shape against a hand-mirrored backend type. If they drift, type-check fails.
-
-#### ENG-Q2 — Drop `as unknown as` casts on `MatchState`
-
-- Extend frontend `MatchState` in `useScoreboard.ts:15-25` to include:
-  - `competitor1?: { id: string; firstName: string; lastName: string; club?: string }` (add `club`)
-  - `competitor2?: { ...same shape }`
-  - `category?: { name: string }`
-- The backend `getMatchState` (scoreboard.service.ts:178) already includes `category: true` and full competitor relations, so the wire data is consistent.
-- Drop the 3 `as unknown as` casts in `DisplayPage.tsx:390-392`.
-- Audit `applyScoreEvent` (scoreboard.service.ts:51), `startMatch` (:122), `endMatch` (:138), `enableGoldenScore` (:208) — they each currently use `include: { competitor1: true, competitor2: true }` without category. That's fine because category is invariant per match: it arrives on the `match-state` event (gateway join-mat path) and survives subsequent state patches.
-
-#### ENG-Q4 — Drop `any` from `WinMethod` and `match`
-
-- Import `WinMethod` and `Prisma` from `@prisma/client` in `scoreboard.service.ts`.
-- Type `ApplyResult.match` (line 40) as `Prisma.MatchGetPayload<{ include: { competitor1: true; competitor2: true } }>`.
-- Type internal `winMethod` variable at line 71 as `WinMethod | undefined`. Drop `winMethod as any` at lines 92, 137.
-- **Add runtime validation at the socket boundary** (gateway.ts:113 `end-match` message). The `winMethod: string` arriving from the wire is unvalidated user input. Add a guard:
-  ```ts
-  const VALID_WIN_METHODS = Object.values(WinMethod);
-  if (!VALID_WIN_METHODS.includes(payload.winMethod as WinMethod)) {
-    throw new WsException('Invalid winMethod');
-  }
-  ```
-  Prisma would reject at write time anyway, but a clear WsException beats a 500 over the socket.
-
-#### ENG-A2 — Transaction-wrap `applyScoreEvent` tail (interactive form)
-
-**CRITICAL CORRECTION** from the original spec: `prisma.$transaction([find, update])` array form CANNOT pass data between operations. The advancement chain has 6+ sequential reads with data dependencies (`findFirst` returns the next-slot ID that the `update` consumes). Must use interactive form.
-
-- Wrap the tail of `applyScoreEvent` (lines 95-104) — the `match.update` + `advanceWinner` + `advanceMatQueue` sequence — in `this.prisma.$transaction(async (tx) => { ... })`.
-- Thread `tx` through `advanceWinner` and ALL its helpers (`advanceWinnerInPools`, `advanceWinnerInDoubleRepechage`, `advanceWinnerInGrandSlam`, the SINGLE_REPECHAGE branch). Replace every `this.prisma.X` inside with `tx.X`.
-- Same treatment for `endMatch` (lines 126-145) and `maybeCreateKnockoutMatchesAfterPoolStage` (lines 609-750).
-- **Document the concurrency boundary:** the transaction wrap prevents partial DB writes within one `applyScoreEvent` call. It does NOT prevent two concurrent score events (e.g., manual end-match collision with the osaekomi-20s auto-IPPON setTimeout at gateway.ts:140) from racing. Postgres default isolation (READ COMMITTED) doesn't serialize them. Mitigation for that race is out of scope for Bundle 1 — track as ENG-A5 (new) in DEFER for now.
-
-#### ENG-A4 — ASCII diagrams in 3 spots
-
-- `single-repechage.util.ts:getNextSlot` — slot mapping `(R, P) → (R+1, ⌈P/2⌉)` with isCompetitor1 rule.
-- `scoreboard.service.ts:advanceWinner` — state machine showing R1 → R2 → R3 → bronze paths per bracket type.
-- `standings/round-robin.util.ts:rankRoundRobin` — IJF tiebreaker chain (H2H → ippons → waza-ari → fewest shidos).
-
-#### Bundle 1 — Test plan (sharpened)
-
-- `cd backend && npx tsc --noEmit` — passes.
-- `cd frontend && npx tsc --noEmit` — passes.
-- **New backend test:** `backend/src/scoreboard/scoreboard.service.spec.ts` — add cases that mock `prisma.$transaction(async (tx) => fn(tx))` to invoke the callback with a `tx` proxy and assert the right advancement update is called with the right slot. Otherwise the existing `scoreboard.gateway.spec.ts` mocks `applyScoreEvent` and won't catch a broken transaction wrap.
-- **New frontend test:** the satisfies-style type-mirror test in `useScoreboard.test.ts` (mentioned in ENG-Q1).
-- Manual smoke: score a match through to completion, verify R1 winner advances to R2, verify standings tab still renders the standings (catches the `as unknown as` cast removal).
-
-**Bundle 1 — Files touched:** backend new `scoreboard/scoreboard.types.ts`, modified `scoreboard/scoreboard.service.ts`, `scoreboard/scoreboard.gateway.ts`, `standings/standings.types.ts`, `standings/round-robin.util.ts`, `brackets/single-repechage.util.ts`, new `scoreboard/scoreboard.service.spec.ts` cases; frontend modified `useScoreboard.ts`, `DisplayPage.tsx`, new `useScoreboard.test.ts`.
-**Risk:** medium (was: very low). The transaction-wrap touches concurrency-sensitive advancement code. Type-only changes are still very low risk; the `$transaction` interactive form needs careful threading.
-
-### Bundle 2 — Broadcast feel (PR 2, ~5h CC ≈ ~25 min CC actual)
-
-Ships: **F3.B, F1.B, F3.C**. Specs locked during `/autoplan` Phase 2 — the original spec had critical gaps (GS interaction, SCHEDULED misfire, IPPON ambiguity, WAZA_ARI fire trigger).
-
-#### F3.B — Final 30s timer pulse on Display
-
-**Gating** (CRITICAL — original spec missed this; sharpened in Phase 3 eng review):
-- Pulse active only when `matchState.status === 'ACTIVE' && !matchState.goldenScore && timerSeconds > 0`.
-- The `timerSeconds > 0` clause specifically guards the GS-transition race: today the timer effect clamps `remaining` to `>= 0`, so when GS engages, `timerSeconds` sits at `0` permanently. Without the `> 0` guard, the 0s flash animation would fire once on every GS transition. (There is no count-up GS timer in the codebase today; adding one is out of scope for this bundle.)
-- During SCHEDULED, COMPLETED, or any non-ACTIVE state: no pulse, no color change.
-
-**Thresholds** (countdown direction, regulation only):
-- `> 30s`: white text, no animation.
-- `≤ 30s and > 10s`: amber text (`#fbbf24`), no animation. (Calm but warmer.)
-- `≤ 10s and > 0s`: red text (`#ef4444`), pulse animation 1s ease-in-out, opacity 100% → 60% → 100%.
-- `= 0s`: red text, flash animation (3 quick blinks over 750ms, then static red).
-
-**CSS** (add to `index.css`):
-```css
-@keyframes timer-pulse-warn { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
-@keyframes timer-flash-end { 0%,33%,66%,100% { opacity: 1; } 16%,50%,83% { opacity: 0.2; } }
-.timer-pulse { animation: timer-pulse-warn 1s ease-in-out infinite; }
-.timer-flash { animation: timer-flash-end 750ms ease-in-out 1; }
-@media (prefers-reduced-motion: reduce) {
-  .timer-pulse, .timer-flash { animation: none; }
-  /* Color change is preserved — that's the urgency cue under reduced-motion. */
-}
-```
-
-**Files:** `DisplayPage.tsx` (CenterBar — conditional class on the timer span), `index.css`.
-
-#### F1.B — "STARTING SOON" overlay on SCHEDULED-status matches
-
-**Trigger:** `matchState.status === 'SCHEDULED' && matchState.competitor1 && matchState.competitor2` (match assigned, BOTH competitors known). If a SCHEDULED match has only one competitor (TBD slot in bracket): do NOT show STARTING SOON — fall through to the LIVE scoreboard layout (CompetitorRow + CenterBar + CompetitorRow). The existing "Waiting for match" full-screen state at `DisplayPage.tsx:397-403` is only reachable when `!matchState` — that path is unaffected.
-
-**Layout:** Full takeover of the CenterBar only (the timer slot). Competitor rows REMAIN visible underneath. The category strip above also remains visible. This is the same vertical real-estate the timer occupies, replaced.
-
-**Visual:**
-- Background: `linear-gradient(180deg, #000000 0%, #0a0f1f 100%)` — matches the existing black scoreboard backdrop.
-- Headline: "STARTING SOON" in `#c9a64b` (the IJF gold token used elsewhere on the scoreboard), `clamp(64px, 9vw, 140px)`, font-weight 900, letter-spacing 0.05em, no animation.
-- Subtext (one line below): `<category.name> · <bout number if known>`, white at 70% opacity, `clamp(20px, 2.5vw, 40px)`, font-weight 600.
-- Reduced-motion: irrelevant (no animation).
-
-**A11y:** `role="status"`, `aria-live="polite"`. Screen readers on the venue laptop announce the upcoming match once. Not relevant for TV display but cheap to include.
-
-**Files:** `DisplayPage.tsx` (new `<StartingSoonBar>` component rendered in place of `<CenterBar>` when trigger fires).
-
-#### F3.C — Win-method-specific banner styling
-
-**Fire condition** (CRITICAL — original spec was ambiguous):
-- `WinBanner` renders **only when `matchState.status === 'COMPLETED' && matchState.winMethod`**.
-- Never mid-match. Never on score events. A score-event handler must NOT touch this banner.
-- For IPPON specifically: `IpponOverlay` plays first (4s, full-screen drama, current behavior unchanged). Once `onAnimationEnd` fires, `WinBanner` takes over as the **static post-overlay label** — no `animate-pulse` on the IPPON banner anymore.
-
-**Method-by-method spec table:**
-
-| Method | Display copy | Background | Text color | Animation | A11y label |
-|--------|--------------|------------|------------|-----------|-----------|
-| IPPON | "IPPON" | `#c9a64b` (gold) | `#000` | none (static post-overlay) | "Match won by ippon" |
-| WAZA_ARI | "WAZA-ARI" | `#d4b669` (lighter gold) | `#000` | none | "Match won by waza-ari" |
-| DECISION | "DECISION" + winner name on winner's color half | Vertical split: blue half `#0a3a7a` (IJF blue) on competitor1 side, white half `#fff` on competitor2 side | Blue half: white text. White half: `#0a3a7a` text. | none | "Match decided in favor of {winner}" |
-| HANSOKU_MAKE | "HANSOKU-MAKE" + subtitle "DISQUALIFICATION" | `#991b1b` (red-800) | `#fff` | none — current red border/glow style is fine and stays | "Match ended by disqualification" |
-| FUSEN_GACHI | "FUSEN-GACHI" + subtitle "FORFEIT" | `#525252` (neutral-600) | `#fff` | none | "Match won by forfeit (opponent did not appear)" |
-| KIKEN_GACHI | "KIKEN-GACHI" + subtitle "WITHDRAWAL" | `#525252` (neutral-600) | `#fff` | none | "Match won by withdrawal" |
-
-(Phase 3 correction: an earlier draft of this table included a `SOREMADE` row. The Prisma `WinMethod` enum has only 6 values — see `backend/prisma/schema.prisma:279-286` — and SOREMADE is not one of them. Adding it would require a migration, which Bundle 1 explicitly avoids. Dropped from the variant table.)
-
-**Other methods:** if `winMethod` is anything outside these 6 (or null after COMPLETED), fall back to generic gold banner showing the raw enum text. Log a `console.warn` so we catch new enum values added later.
-
-**Reduced-motion:** all variants are static. The existing `WinBanner` `animate-pulse` is removed across the board — drama lives in `IpponOverlay` for IPPON, and the static color/typography carries the rest.
-
-**Files:** `DisplayPage.tsx` (WinBanner refactor — switch on winMethod), `index.css` (add the variant classes, remove the existing `animate-pulse` from WinBanner).
-
-**Bundle 2 — Files touched:** `DisplayPage.tsx`, `index.css`.
-**Risk:** medium. Touches the most-watched UI in the product. Verify with all 7 win methods.
-**Test plan:**
-1. Type-check passes.
-2. Manual: trigger each of the 7 win methods (force via dev tools or backend script). Verify the right banner appears at COMPLETED, never mid-match.
-3. Manual: assign a match without starting it. Verify STARTING SOON appears with competitor names + category.
-4. Manual: run a match to 0:30 / 0:10 / 0:00. Verify color changes + pulse + flash at the right thresholds.
-5. Manual: hit Golden Score during regulation expiry. Verify timer pulse/flash STOP when GS engages.
-6. Manual: enable `prefers-reduced-motion` in OS. Verify animations replaced by static color changes.
-
-### Bundle 3 — Spectator standings tab (PR 3, ~3h CC ≈ ~20 min CC actual)
-
-Ships: **F7.D2** (the only TODO with a real user premise — family of competitors looking up their fighter). Spec locked during `/autoplan` Phase 2 — original "mobile layout" was undefined.
-
-**Data layer** (Phase 3 correction: original spec falsely claimed cache reuse with StandingsTab):
-- `SpectatorPage.tsx` currently uses raw `api.get` + `setInterval` (lines 174-202). It does NOT use TanStack Query. To stay consistent with the surrounding page, `SpectatorStandings` should use the same `api.get` + polling pattern, not introduce TanStack Query just for one component.
-- `useEffect` hook calling `api.get('/competitions/:competitionId/standings')` every 5s. `useState` for the latest standings response. Clear interval on unmount.
-- Reuse the `rankBadge()` helper from `StandingsTab.tsx` (export it from there) and `BRACKET_LABELS` from `@/lib/bracket`.
-- Do NOT reuse `RoundRobinTable` directly — it's a 7-column desktop table that overflows 375px. Build a mobile alternative below.
-
-**Tab bar (bottom-fixed nav, not tablist):**
-- Semantics: `<nav role="navigation" aria-label="Spectator views">` containing two buttons. NOT `role="tablist"` — these are page-level navigation, not in-page tabs.
-- Position: `position: fixed; bottom: 0; left: 0; right: 0`. iOS safe-area: `padding-bottom: env(safe-area-inset-bottom)`.
-- Height: 56px content + safe area. Each button ≥ 44×44px touch target.
-- Background: `#0a0f1f` with `border-top: 1px solid #1f2937` (matches existing scoreboard tone).
-- Active tab indicator: 3px top border in `#c9a64b` (IJF gold) on the active button, none on inactive. Icon (Lucide `Activity` for Live Mats, `Trophy` for Standings) + label below in 12px font.
-- Switching tabs: in-page state via `useState<'live' | 'standings'>('live')`. URL stays the same (no route change). Keyboard: `Tab` + `Enter` works. Focus moves to the panel heading on switch.
-- Bottom padding on content area: 80px (56px tab bar + safe area + breathing room) so the last card isn't covered.
-
-**Standings panel — mobile layout:**
-
-Per-category card (replaces `RoundRobinTable` on mobile). For each category:
-
-```
-┌──────────────────────────────────────┐
-│ -73kg                           [POOLS] │ ← category header (existing flex flex-wrap)
-├──────────────────────────────────────┤
-│  🥇  YAMAMOTO, Kenji           [Tokyo] │ ← rank 1, big name, club pill
-│  └─ 3W 0L · 2 ippon · 1 waza-ari       │ ← stats row, small muted text
-│ ────────────────────────────────────── │
-│  🥈  KIMURA, Hiroshi           [Osaka] │
-│  └─ 2W 1L · 1 ippon · 1 waza-ari       │
-│ ────────────────────────────────────── │
-│  🥉  TANAKA, Daisuke           [Kobe]  │
-│  └─ 1W 2L · 0 ippon · 2 waza-ari       │
-└──────────────────────────────────────┘
-```
-
-- Show rank 1-3 by default. If category has 4+ competitors AND status is COMPLETE, hide rank 4+ behind a tappable "Show all rankings (N more)" footer that toggles `expanded` state per category.
-- Rank icon (🥇🥈🥉) for top 3, otherwise the rank number in a circle.
-- Name: 18px, font-weight 600. Club: 12px, neutral-400.
-- Stats row (only for round-robin standings): 14px, neutral-500. For elimination brackets, omit the stats row (no W/L tally tracked).
-- Tap expansion: chevron right (→) becomes chevron down (↓) on expand. `aria-expanded` true/false.
-
-**Empty states** (CRITICAL — original spec showed organizer copy "Generate categories" to spectators):
-- No categories yet: large centered icon + "Bracket coming soon — check back when matches start." in 16px neutral-400. NO "generate categories" copy.
-- All categories IN_PROGRESS, no rankings: per-category card shows "Matches in progress — no rankings yet" instead of the rank rows. Less scary.
-- Socket disconnect during standings polling: existing `<DisconnectBanner>` on SpectatorPage already covers it. Standings table renders last-known data, which is acceptable.
-
-**Files touched:** `SpectatorPage.tsx` (tab bar + panel switching), new `frontend/src/components/SpectatorStandings.tsx` (mobile layout, reuses `useQuery` key + bracket helpers).
-**Risk:** low-medium. New page surface + new component, but reuses data layer. Mobile-only — desktop spectator gets the same view (acceptable; spectator is phone-first).
-**Test plan:**
-1. Type-check passes.
-2. Manual: open `/spectator/<id>` on 375px viewport. Verify tab bar at bottom with safe-area inset.
-3. Manual: tap Standings tab. Verify standings panel renders. Verify no horizontal scroll.
-4. Manual: with 0 categories, verify empty-state copy is spectator-friendly (not organizer copy).
-5. Manual: complete a round-robin category. Verify top-3 with rank icons + club + stats.
-6. Manual: tap "Show all rankings" on a 5+ competitor category. Verify expand/collapse with chevron and `aria-expanded`.
-7. Manual: keyboard navigation — Tab to each nav button, Enter to switch panels. Verify focus moves to panel heading.
-8. Manual: disconnect socket (DevTools offline). Verify DisconnectBanner shows AND standings keep showing last-known data.
-
-### Bundle 4 — F4.A tiny slice (PR 4, ~10 min CC)
-
-Ships: **F4.A reduced scope only**
-
-- Change active tab underline color on the dashboard to IJF blue (`#0a3a7a`). Single Tailwind class change.
-- **Skip** the rest of F4.A (status pills, standings podium tokens) — those depend on F5.A which is killed.
-
-**Files touched:** `CompetitionDetailPage.tsx`.
-**Risk:** zero. One-line CSS.
-**Test plan:** open dashboard, click between tabs, verify underline color.
-
----
+| PR | Bundle | What landed |
+|----|--------|-------------|
+| #16 | Bundle 4 — admin tab underline | `border-gray-900` → IJF blue `#0a3a7a` on the active dashboard tab. |
+| #17 | Bundle 1 — type hygiene + concurrency | ENG-Q1 / Q2 / Q4 / A2 / A4: single source of truth for `MatchScores`, drop `as unknown as` casts on `MatchState`, drop `any` from `WinMethod`, wrap advancement in interactive `prisma.$transaction(async (tx) => ...)` with `tx` threaded through every advancement helper, ASCII diagrams for slot routing + IJF tiebreaker chain + advancement state machine. |
+| #18 | Bundle 1 — real-DB smoke | 5-scenario e2e spec against real Postgres + 3 gateway-boundary cases for the WinMethod `WsException`. Backend tests 228 → 231. |
+| #19 | Bundle 2 — broadcast feel | F3.B timer pulse (amber 0:30, red+pulse 0:10, red+flash 0:00, gated on `!goldenScore && timer > 0`), F1.B "STARTING SOON" overlay on SCHEDULED matches with both competitors known, F3.C six explicit win-method banner variants (DECISION as a vertical blue/white split with winner's name on their side). |
+| #20 | Bundle 3 — spectator standings | New `SpectatorStandings` mobile-card layout, bottom-fixed nav in `SpectatorPage` (Live Mats / Standings toggle), spectator-friendly empty states, rank icons exported from `StandingsTab`. Caught + fixed auth bug: switched the standings fetch to `/public/competitions/:id/standings`. |
 
 ## DEFER — Re-evaluate only when a real customer reports it
 
@@ -249,6 +30,13 @@ Ships: **F4.A reduced scope only**
 **What:** Status pills + standings podium binary in IJF blue/white.
 **Why defer:** The premise (admin/scoreboard cohesion) is real but small. Bundle 4 ships the highest-impact slice. The rest is incremental.
 **Re-evaluate when:** A user complains the dashboard looks generic. Bundle with a future visual pass.
+
+### ENG-A5 — Concurrent `applyScoreEvent` race (osaekomi setTimeout vs manual end-match)
+
+**What:** Bundle 1's `prisma.$transaction(async (tx) => ...)` wrap prevents PARTIAL writes inside one `applyScoreEvent` call. It does NOT serialize two concurrent score events on the same match — e.g. the osaekomi 20s `setTimeout` in `scoreboard.gateway.ts:140` firing while a controller manually ends the match. Postgres default isolation (READ COMMITTED) doesn't prevent that race. Two parallel score events can both see `status: ACTIVE`, both attempt the COMPLETED update, and last writer wins.
+**Why defer:** Bundle 1 closed the partial-write window (the more common bug class). The concurrent-events race is rarer (requires ~ms-scale collision between auto-timer and human input) and has a fixed cost ceiling (one match state wrong by a tick, recoverable by re-scoring). Mitigation options (optimistic locking via a `version` column, `SELECT ... FOR UPDATE`, or app-level mutex per matchId) all add complexity.
+**Re-evaluate when:** A tournament reports a match ended with the wrong winner or wrong winMethod, and the audit trail shows two near-simultaneous applyScoreEvent calls.
+**Files (when picked up):** [scoreboard.service.ts](backend/src/scoreboard/scoreboard.service.ts), [scoreboard.gateway.ts](backend/src/scoreboard/scoreboard.gateway.ts).
 
 ---
 
