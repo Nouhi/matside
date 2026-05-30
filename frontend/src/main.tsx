@@ -10,6 +10,10 @@ import './index.css';
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { toast } from './lib/toast';
+import { initSentry } from './lib/sentry';
+
+// No-op unless VITE_SENTRY_DSN is set at build time.
+initSentry();
 
 const queryClient = new QueryClient({
   defaultOptions: {

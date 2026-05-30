@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { MapPin, Calendar, Users, Copy, Check, Layers, Swords, Share2, Scale, AlertTriangle } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ComponentProps } from 'react';
 import { BracketView } from '@/components/BracketView';
 import { StandingsTab } from '@/components/StandingsTab';
 import { WeighInModal } from '@/components/WeighInModal';
@@ -416,7 +416,12 @@ export function CompetitionDetailPage() {
         )}
 
         {activeTab === 'brackets' && (
-          <BracketView categories={brackets} />
+          // BracketView declares its own Category shape (no shared types
+          // workspace yet); the API payload satisfies both, so anchor the cast
+          // to BracketView's own prop type rather than `any`.
+          <BracketView
+            categories={brackets as ComponentProps<typeof BracketView>['categories']}
+          />
         )}
 
         {activeTab === 'mats' && (

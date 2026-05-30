@@ -5,6 +5,7 @@ interface Competitor {
   id: string;
   firstName: string;
   lastName: string;
+  club?: string | null;
 }
 
 interface Match {

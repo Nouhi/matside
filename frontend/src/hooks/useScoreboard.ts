@@ -108,7 +108,9 @@ export function useScoreboard(matId: string, pin?: string) {
             : prev.competitor2?.id === data.winnerId
               ? prev.competitor2
               : undefined;
-        return { ...prev, status: 'COMPLETED', winner, winMethod: data.winMethod };
+        // The wire payload types winMethod as string; the gateway validates it
+        // against the WinMethod enum before emitting, so the narrowing is safe.
+        return { ...prev, status: 'COMPLETED', winner, winMethod: data.winMethod as WinMethod };
       });
       setOsaekomi({ active: false });
     });
