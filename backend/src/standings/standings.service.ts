@@ -8,6 +8,7 @@ import {
 import { computeEliminationStandings } from './elimination.util';
 import { computePoolsStandings } from './pools.util';
 import { MatchScores, StandingMatch } from './standings.types';
+import { buildStandingsCsv, slugify } from './standings.csv';
 
 export interface CompetitorRef {
   id: string;
@@ -39,6 +40,29 @@ export interface CategoryStandings {
 @Injectable()
 export class StandingsService {
   constructor(private prisma: PrismaService) {}
+
+  /**
+   * Build a federation-ready CSV of every category's placements, named after
+   * the competition. Reuses getCompetitionStandings so the export can never
+   * drift from what organizers see on screen.
+   */
+  async exportStandingsCsv(
+    competitionId: string,
+  ): Promise<{ filename: string; csv: string }> {
+    const competition = await this.prisma.competition.findUnique({
+      where: { id: competitionId },
+      select: { name: true },
+    });
+    if (!competition) {
+      throw new NotFoundException('Competition not found');
+    }
+
+    const categories = await this.getCompetitionStandings(competitionId);
+    return {
+      filename: `${slugify(competition.name)}-standings.csv`,
+      csv: buildStandingsCsv(categories),
+    };
+  }
 
   async getCompetitionStandings(competitionId: string): Promise<CategoryStandings[]> {
     const competition = await this.prisma.competition.findUnique({

@@ -81,10 +81,7 @@ These aren't required, but they catch a lot before review.
 
 Look at [TODOS.md](TODOS.md). Items tagged `ENG-*` (engineering) and `F1.*` / `F2.*` etc. (design fixes) are scoped, with files + estimated effort. Pick one that interests you, comment on the issue (or open one) before starting if it's non-trivial.
 
-Quick wins right now:
-- Fix the `MatchScores` type duplication across backend + frontend (see `ENG-Q1` in TODOS.md)
-- Drop `as unknown as` casts in `DisplayPage.tsx` (see `ENG-Q2`)
-- Add ASCII diagrams for bracket advancement (see `ENG-A4`)
+Check the `DEFER` and `MISSING FROM BACKLOG` sections of TODOS.md for what's open — the `SHIPPED` table at the top records what's already landed, so you don't re-do it.
 
 ## Code style
 
