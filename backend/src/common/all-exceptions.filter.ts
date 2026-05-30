@@ -6,8 +6,16 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { BaseWsExceptionFilter } from '@nestjs/websockets';
+import { BaseWsExceptionFilter, WsException } from '@nestjs/websockets';
 import { Request, Response } from 'express';
+
+/** Pull a human-readable message out of an HttpException's response body. */
+function httpExceptionMessage(exception: HttpException): unknown {
+  const body = exception.getResponse();
+  return typeof body === 'string'
+    ? body
+    : (body as { message?: unknown }).message ?? body;
+}
 
 /**
  * Catches every uncaught exception, logs it (5xx with stack, 4xx as warn), and
@@ -29,8 +37,18 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
   catch(exception: unknown, host: ArgumentsHost) {
     if (host.getType() !== 'http') {
-      // WebSocket (and any non-HTTP) errors keep their framework default.
-      this.wsFilter.catch(exception, host);
+      // WebSocket path. The scoreboard gateway's services throw ordinary HTTP
+      // exceptions (NotFoundException "Match not found", BadRequestException
+      // "Match is not active", etc). BaseWsExceptionFilter only understands
+      // WsException — anything else it flattens to a generic "Internal server
+      // error" and logs at error level. Map HttpException -> WsException first
+      // so the table official sees the real reason and routine 404/400s don't
+      // spam error logs during normal play.
+      const wsError =
+        exception instanceof HttpException
+          ? new WsException(httpExceptionMessage(exception) as string | object)
+          : exception;
+      this.wsFilter.catch(wsError, host);
       return;
     }
 
@@ -43,11 +61,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
-    let message: unknown = 'Internal server error';
-    if (exception instanceof HttpException) {
-      const body = exception.getResponse();
-      message = typeof body === 'string' ? body : (body as { message?: unknown }).message ?? body;
-    }
+    const message: unknown =
+      exception instanceof HttpException
+        ? httpExceptionMessage(exception)
+        : 'Internal server error';
 
     // req.path excludes the query string — avoids leaking anything passed in the
     // query (tokens in share links, etc.) into logs and the error body.

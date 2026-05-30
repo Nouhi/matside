@@ -103,6 +103,28 @@ describe('buildStandingsCsv', () => {
     expect(row.startsWith('-66kg,')).toBe(true);
   });
 
+  it('guards leading control chars (tab / CR / LF) before a formula', () => {
+    const make = (first: string) =>
+      cat({
+        standings: [
+          {
+            rank: 1,
+            competitor: { id: 'c', firstName: first, lastName: 'X', club: '', athleteId: null },
+          },
+        ],
+      });
+    // Each leading control char + formula must be apostrophe-prefixed so a
+    // spreadsheet treats it as text. Assert against the raw output: the guarded
+    // value `'<ctrl>=cmd` appears verbatim (quoting wraps it but doesn't alter
+    // the apostrophe-then-ctrl-then-formula sequence).
+    for (const ctrl of ['\t', '\r', '\n']) {
+      const out = buildStandingsCsv([make(`${ctrl}=cmd`)]);
+      expect(out.includes(`'${ctrl}=cmd`)).toBe(true);
+      // And never a bare formula start right after the rank delimiter.
+      expect(out.includes(`,1,${ctrl}=cmd`)).toBe(false);
+    }
+  });
+
   it('renders missing optional stats as empty cells, not undefined', () => {
     const cats = [
       cat({

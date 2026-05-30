@@ -32,7 +32,7 @@ function esc(value: unknown): string {
 // category name (e.g. "-60kg"), which legitimately start with "-".
 function escText(value: unknown): string {
   let s = value === null || value === undefined ? '' : String(value);
-  if (s.length > 0 && /^[=+\-@\t\r]/.test(s)) {
+  if (s.length > 0 && /^[=+\-@\t\r\n]/.test(s)) {
     s = `'${s}`;
   }
   return esc(s);
