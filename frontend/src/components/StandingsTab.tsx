@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { Trophy, Medal, AlertTriangle, Loader } from 'lucide-react';
+import { Trophy, Medal, AlertTriangle, Loader, Download } from 'lucide-react';
 import { bracketLabel } from '@/lib/bracket';
+import { toast } from '@/lib/toast';
 
 interface CompetitorRef {
   id: string;
@@ -90,11 +91,49 @@ export function StandingsTab({ competitionId }: { competitionId: string }) {
     );
   }
 
+  // Blob download instead of a plain <a download>: a browser navigation sends
+  // Accept: text/html, which the vite dev proxy serves from index.html instead
+  // of proxying to the API. A fetch with Accept: text/csv proxies correctly in
+  // dev and prod alike.
+  async function handleExport() {
+    try {
+      const res = await fetch(
+        `/competitions/${competitionId}/standings/export`,
+        { headers: { Accept: 'text/csv' } },
+      );
+      if (!res.ok) throw new Error(`Export failed (${res.status})`);
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') ?? '';
+      const match = /filename="?([^"]+)"?/.exec(disposition);
+      const filename = match?.[1] ?? 'standings.csv';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Export failed');
+    }
+  }
+
   return (
-    <div className="divide-y divide-gray-100">
-      {categories.map((cat) => (
-        <CategoryStandingsBlock key={cat.categoryId} category={cat} />
-      ))}
+    <div>
+      <div className="flex justify-end px-6 pt-4">
+        <button
+          onClick={handleExport}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-[#0a3a7a] text-[#0a3a7a] text-sm font-medium hover:bg-[#0a3a7a] hover:text-white transition-colors"
+        >
+          <Download size={14} /> Export CSV
+        </button>
+      </div>
+      <div className="divide-y divide-gray-100">
+        {categories.map((cat) => (
+          <CategoryStandingsBlock key={cat.categoryId} category={cat} />
+        ))}
+      </div>
     </div>
   );
 }
