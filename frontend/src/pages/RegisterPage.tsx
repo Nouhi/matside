@@ -1,4 +1,4 @@
-import { useState, FormEvent, useMemo, useEffect } from 'react';
+import { useState, type FormEvent, useMemo, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
