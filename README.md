@@ -9,7 +9,7 @@ The product is **matside** (lowercase). Repo: `Nouhi/matside`.
 - **Pre-event** — organisers create a competition, share a public registration link, weigh in competitors, generate categories and brackets, configure mats.
 - **Day-of** — auto-balanced category-to-mat assignment, table-official tablet for scoring (PIN-protected), TV/projector display per mat, phone-friendly spectator view.
 - **Scoring** — IJF rules: waza-ari, yuko, shido (3rd shido = hansoku-make red card), osaekomi auto-scoring (10s = waza-ari, 20s = ippon), direct ippon button, golden score, big yellow IPPON animation on match-end.
-- **Post-event** — round-robin standings with full IJF tiebreakers (direct H2H → ippons → waza-ari → fewest shidos), elimination podium (gold / silver / joint bronze).
+- **Post-event** — round-robin standings with full IJF tiebreakers (direct H2H → ippons → waza-ari → fewest shidos), elimination podium (gold / silver / joint bronze), and one-click CSV export of every category's placements for federation reporting.
 
 For the full feature list, data model, and IJF rule decisions, see [docs/designs/judo-competition-manager.md](docs/designs/judo-competition-manager.md).
 
@@ -29,8 +29,8 @@ For the full feature list, data model, and IJF rule decisions, see [docs/designs
                                └──────────────────────┘
 ```
 
-- `backend/` — NestJS 11, Prisma 7, PostgreSQL, Socket.IO for the live scoreboard.
-- `frontend/` — Vite + React 19, TanStack Query, Tailwind v4, shadcn/ui. The `@/*` import alias resolves to `frontend/src/*`.
+- `backend/` — NestJS 11, Prisma 7, PostgreSQL, Socket.IO for the live scoreboard. A global exception filter returns consistent JSON errors, an interceptor logs every request, and `GET /health` reports a DB-ping health check (503 when the database is unreachable).
+- `frontend/` — Vite + React 19, TanStack Query, Tailwind v4, shadcn/ui. The `@/*` import alias resolves to `frontend/src/*`. A top-level `ErrorBoundary` catches render crashes, and failed initial data loads surface as toasts.
 
 ## Local development
 
@@ -71,7 +71,7 @@ cd backend && npm run start:dev
 cd frontend && npm run dev
 ```
 
-Open http://localhost:5173 and register an organizer account to get started. The Vite dev server proxies `/auth`, `/competitions`, `/categories`, `/competitors`, `/mats`, and `/scoreboard` (Socket.IO) to the backend on :3000.
+Open http://localhost:5173 and register an organizer account to get started. The Vite dev server proxies `/auth`, `/competitions`, `/categories`, `/competitors`, `/mats`, `/public`, and `/scoreboard` (Socket.IO) to the backend on :3000.
 
 ## Useful URLs once running
 
@@ -120,7 +120,9 @@ matside/
 │       ├── categories/     # IJF weight class generation, mat assignment
 │       ├── brackets/       # bracket generation (round-robin, single repechage)
 │       ├── scoreboard/     # match scoring, osaekomi, WebSocket gateway
-│       └── standings/      # medal standings, IJF tiebreakers
+│       ├── standings/      # medal standings, IJF tiebreakers, CSV export
+│       ├── health/         # GET /health DB-ping endpoint
+│       └── common/         # global exception filter, request logging
 ├── frontend/               # Vite + React 19
 │   └── src/
 │       ├── pages/

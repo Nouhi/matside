@@ -3,7 +3,7 @@
 
 Triaged via `/autoplan` on 2026-05-11 from a starting backlog of 21 items (14 design + 7 eng) deferred from `/plan-design-review` 2026-05-07. Outcome: 4 bundles shipped, 3 items deferred, 8 killed, 7 strategic roadmap gaps surfaced.
 
-**Status (2026-05-12):** all 4 ship bundles merged via PRs #16–#20. Detailed bundle specs live in git history (see audit trail at the bottom + the autoplan restore point referenced in the HTML comment above). The live content of this file is the DEFER / KILLED / MISSING sections below.
+**Status (2026-05-28):** all 4 autoplan bundles merged via PRs #16–#20. Since then: anonymous-access spectator scoreboard + polish landed (PRs #21–#24), and federation CSV export + vendor-free observability shipped (this change). Detailed bundle specs live in git history (see audit trail at the bottom + the autoplan restore point referenced in the HTML comment above). The live content of this file is the DEFER / KILLED / MISSING sections below.
 
 Approved mockup reference: `~/.gstack/projects/Nouhi-matside/designs/scoreboard-display-20260506/variant-A.html` (Variant A — Classic IJF Broadcast).
 
@@ -16,6 +16,17 @@ Approved mockup reference: `~/.gstack/projects/Nouhi-matside/designs/scoreboard-
 | #18 | Bundle 1 — real-DB smoke | 5-scenario e2e spec against real Postgres + 3 gateway-boundary cases for the WinMethod `WsException`. Backend tests 228 → 231. |
 | #19 | Bundle 2 — broadcast feel | F3.B timer pulse (amber 0:30, red+pulse 0:10, red+flash 0:00, gated on `!goldenScore && timer > 0`), F1.B "STARTING SOON" overlay on SCHEDULED matches with both competitors known, F3.C six explicit win-method banner variants (DECISION as a vertical blue/white split with winner's name on their side). |
 | #20 | Bundle 3 — spectator standings | New `SpectatorStandings` mobile-card layout, bottom-fixed nav in `SpectatorPage` (Live Mats / Standings toggle), spectator-friendly empty states, rank icons exported from `StandingsTab`. Caught + fixed auth bug: switched the standings fetch to `/public/competitions/:id/standings`. |
+
+## SHIPPED since (2026-05-28)
+
+| PR | What | Detail |
+|----|------|--------|
+| #21 | Spectator anonymous live access | No-login live scoreboard via `/public` endpoints + ETA hint. |
+| #22 | Spectator schedule types | Synced `PublicSchedule` with the extended schedule endpoint shape. |
+| #23 | Spectator polish | Consolidated header pill, muted pre-match scores, skeleton loader. |
+| #24 | Chore | gitignore `.gstack/`. |
+| — | Federation CSV export | `GET /competitions/:id/standings/export` streams a UTF-8-BOM CSV of every category's placements (RFC-4180 escaping); "Export CSV" button on the standings tab. Resolves MISSING #6. |
+| — | Observability foundations | Global exception filter (consistent JSON errors + logging), per-request logging interceptor, `GET /health` with DB ping (503 when down), frontend `ErrorBoundary` + query-error toasts. Sentry deferred until a deploy target exists. Resolves MISSING #7. |
 
 ## DEFER — Re-evaluate only when a real customer reports it
 
@@ -87,8 +98,10 @@ Not addressed by `/autoplan` because they were never planned. Surfaced here as t
 3. **Coach / club manager accounts** — Judo's actual buyer in clubs. `T2 #9`. Already has `COACH` enum in Prisma schema (ARCH-PREP shipped) but no UX, no scoped access enforcement.
 4. **Email / SMS notifications** — Weigh-in reminders, "you're on Mat 2 in 5 min," results to family. `T1 #6`. Tournament-day venue magic.
 5. **Multi-tournament / season view** — Organizer running 6 events/year wants templates and reuse.
-6. **Federation results export** (CSV / IJF format) — Organizers report to federations. Without this, matside is a toy.
-7. **Observability** — Zero monitoring/error tracking. Will be blind on day 1 of a real tournament.
+
+**Shipped since this list was written:**
+- ~~Federation results export~~ — CSV export shipped (see SHIPPED table). IJF-specific format still open: revisit when a federation provides a concrete spec.
+- ~~Observability~~ — vendor-free foundations shipped (exception filter, request logging, `/health`, frontend ErrorBoundary). Sentry/external error tracking deferred until there's a deploy target to wire a DSN into.
 
 ---
 
