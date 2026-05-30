@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { reportError } from '../lib/sentry';
 
 interface Props {
   children: ReactNode;
@@ -22,8 +23,9 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    // Surfaced in the browser console; swap for a real sink (Sentry) when deployed.
     console.error('Uncaught render error:', error, info.componentStack);
+    // Reported to Sentry when VITE_SENTRY_DSN is set; no-op otherwise.
+    reportError(error, { componentStack: info.componentStack });
   }
 
   handleReload = () => {

@@ -7,7 +7,9 @@ import {
   Logger,
 } from '@nestjs/common';
 import { BaseWsExceptionFilter, WsException } from '@nestjs/websockets';
+import * as Sentry from '@sentry/nestjs';
 import { Request, Response } from 'express';
+import { sentryEnabled } from '../instrument';
 
 /** Pull a human-readable message out of an HttpException's response body. */
 function httpExceptionMessage(exception: HttpException): unknown {
@@ -75,6 +77,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
         context,
         exception instanceof Error ? exception.stack : String(exception),
       );
+      // Report only genuine server faults (5xx) to Sentry — 4xx are client
+      // errors, not bugs. No-op when Sentry is dormant (SENTRY_DSN unset).
+      if (sentryEnabled) {
+        Sentry.captureException(exception);
+      }
     } else {
       this.logger.warn(context);
     }
