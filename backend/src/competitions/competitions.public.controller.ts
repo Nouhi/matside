@@ -76,6 +76,19 @@ export class PublicCompetitionsController {
     private schedulerService: SchedulerService,
   ) {}
 
+  // Open competitions a coach (or anyone) can register into. Fixed path, so it
+  // never collides with the :id route below. Lightweight projection — just
+  // enough to render a pick-list.
+  @Get('open')
+  @Header('Cache-Control', CACHE_HEADER)
+  async listOpen() {
+    return this.prisma.competition.findMany({
+      where: { status: 'REGISTRATION' },
+      select: { id: true, name: true, date: true, location: true },
+      orderBy: { date: 'asc' },
+    });
+  }
+
   @Get(':id')
   @Header('Cache-Control', CACHE_HEADER)
   async findOne(

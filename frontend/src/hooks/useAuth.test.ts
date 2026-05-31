@@ -56,6 +56,7 @@ describe('useAuth', () => {
       email: 'user@test.com',
       password: 'password123',
       name: 'Test User',
+      role: 'ORGANIZER',
     });
     expect(localStorage.getItem('token')).toBe('new-token');
     expect(result.current.isAuthenticated).toBe(true);
@@ -85,5 +86,30 @@ describe('useAuth', () => {
 
     expect(localStorage.getItem('token')).toBeNull();
     expect(result.current.isAuthenticated).toBe(false);
+  });
+
+  // Minimal unsigned JWT (header.payload.signature) — only the payload matters
+  // for the client-side role read.
+  const tokenWithRole = (role?: string) => {
+    const payload = btoa(JSON.stringify(role ? { sub: 'u', role } : { sub: 'u' }));
+    return `h.${payload}.s`;
+  };
+
+  it('decodes COACH role from the token', () => {
+    localStorage.setItem('token', tokenWithRole('COACH'));
+    const { result } = renderHook(() => useAuth());
+    expect(result.current.role).toBe('COACH');
+  });
+
+  it('defaults a roleless (pre-role) token to ORGANIZER', () => {
+    localStorage.setItem('token', tokenWithRole());
+    const { result } = renderHook(() => useAuth());
+    expect(result.current.role).toBe('ORGANIZER');
+  });
+
+  it('defaults an unknown role claim to ORGANIZER (never trusts a bogus value)', () => {
+    localStorage.setItem('token', tokenWithRole('SUPERUSER'));
+    const { result } = renderHook(() => useAuth());
+    expect(result.current.role).toBe('ORGANIZER');
   });
 });

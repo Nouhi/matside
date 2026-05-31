@@ -71,13 +71,14 @@ cd backend && npm run start:dev
 cd frontend && npm run dev
 ```
 
-Open http://localhost:5173 and register an organizer account to get started. The Vite dev server proxies `/auth`, `/competitions`, `/categories`, `/competitors`, `/mats`, `/public`, and `/scoreboard` (Socket.IO) to the backend on :3000.
+Open http://localhost:5173 and register an account — as an **organizer** (run competitions) or a **coach** (register your club's athletes). The Vite dev server proxies `/auth`, `/competitions`, `/categories`, `/competitors`, `/mats`, `/coach`, `/public`, and `/scoreboard` (Socket.IO) to the backend on :3000.
 
 ## Useful URLs once running
 
 | URL | Who | What |
 |---|---|---|
 | http://localhost:5173 | Organiser | Dashboard, competitions, registration, weigh-in, brackets, mats, standings |
+| http://localhost:5173/coach | Coach | "My Athletes" — register a club's athletes into open events, track their status |
 | http://localhost:5173/competitions/`:id`/register | Public | Self-registration form for competitors |
 | http://localhost:5173/c/`:competitionId` | Spectator (phone) | Live mat cards |
 | http://localhost:5173/mat/`:matId`/display | TV / projector | Big scoreboard |

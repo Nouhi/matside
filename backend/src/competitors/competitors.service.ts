@@ -11,7 +11,10 @@ import {
   projectIjfCategory,
 } from '../categories/ijf-projection.util';
 import { AthletesService } from '../athletes/athletes.service';
-import { requireCompetitorAccess } from '../competitions/competition-access.util';
+import {
+  requireCompetitorAccess,
+  requireOwnRegistration,
+} from '../competitions/competition-access.util';
 
 export type CompetitorWithProjection = Competitor & { projection: IjfProjection };
 
@@ -22,6 +25,16 @@ export class CompetitorsService {
     private athletesService: AthletesService,
   ) {}
 
+  /**
+   * Register a competitor into a competition. Shared by three entry points —
+   * public self-registration, organizer-driven, and coach-driven — which differ
+   * ONLY in who (if anyone) is recorded as the registrant. `ctx.registeredById`
+   * is set from the authenticated coach/organizer; public self-registration
+   * leaves it undefined (null in the DB). The athlete-dedup + IJF projection +
+   * capacity guard all live here exactly once, so the three callers can never
+   * drift apart. The public controller must NEVER pass ctx — its DTO doesn't
+   * expose registeredById, so a self-registrant can't forge ownership.
+   */
   async register(
     competitionId: string,
     data: {
@@ -34,6 +47,7 @@ export class CompetitorsService {
       club?: string;
       licenseNumber?: string;
     },
+    ctx?: { registeredById?: string },
   ): Promise<CompetitorWithProjection> {
     const competition = await this.prisma.competition.findUnique({
       where: { id: competitionId },
@@ -112,6 +126,7 @@ export class CompetitorsService {
           data: {
             competitionId,
             athleteId: athlete.id,
+            registeredById: ctx?.registeredById ?? null,
             firstName: data.firstName,
             lastName: data.lastName,
             email: data.email ?? '',
@@ -299,4 +314,71 @@ export class CompetitorsService {
       data: { registrationStatus: status },
     });
   }
+
+  // --- Coach-scoped operations ---------------------------------------------
+  // A coach sees and acts ONLY on competitors they personally registered
+  // (registeredById === coachUserId). Enforced via requireOwnRegistration, NOT
+  // organizer ownership — a coach never touches another coach's or an
+  // organizer-registered athlete.
+
+  /**
+   * Every athlete this coach has registered, across all competitions, newest
+   * first. Each row carries the competition (name, date, status) and the
+   * athlete's division so the "My Athletes" dashboard can show a status pill
+   * plus context. The @@index([registeredById]) on Competitor backs the filter.
+   */
+  async findMyAthletes(coachUserId: string): Promise<MyAthleteRow[]> {
+    const competitors = await this.prisma.competitor.findMany({
+      where: { registeredById: coachUserId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        competition: { select: { id: true, name: true, date: true, status: true } },
+        category: { select: { id: true, name: true } },
+      },
+    });
+    return competitors.map((c) => ({
+      id: c.id,
+      firstName: c.firstName,
+      lastName: c.lastName,
+      club: c.club,
+      registrationStatus: c.registrationStatus,
+      competition: c.competition,
+      category: c.category,
+      projection: projectIjfCategory(c, c.competition.date),
+    }));
+  }
+
+  /**
+   * Coach withdraws an athlete they registered. Ownership-scoped to the coach.
+   *
+   * Status-gated to REGISTRATION only. Nulling categoryId after brackets exist
+   * would orphan the competitor from category-scoped standings while match rows
+   * still reference them by id — the silent-corruption class recordWeight is
+   * hardened against. Once a competition is past REGISTRATION, mid-bracket
+   * removal is the organizer's job (disqualify, which preserves categoryId so
+   * existing matches resolve as walkovers).
+   */
+  async withdrawAsCoach(id: string, coachUserId: string) {
+    const competitor = await requireOwnRegistration(this.prisma, id, coachUserId);
+    if (competitor.competition.status !== 'REGISTRATION') {
+      throw new BadRequestException(
+        'Athletes can only be withdrawn before weigh-in. Contact the organizer to remove a competitor after that.',
+      );
+    }
+    return this.prisma.competitor.update({
+      where: { id },
+      data: { registrationStatus: RegistrationStatus.WITHDRAWN, categoryId: null },
+    });
+  }
+}
+
+export interface MyAthleteRow {
+  id: string;
+  firstName: string;
+  lastName: string;
+  club: string;
+  registrationStatus: RegistrationStatus;
+  competition: { id: string; name: string; date: Date; status: string };
+  category: { id: string; name: string } | null;
+  projection: IjfProjection;
 }

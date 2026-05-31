@@ -1,12 +1,13 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth, type Role } from '@/hooks/useAuth';
 
 export function LoginPage() {
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [role, setRole] = useState<Role>('ORGANIZER');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login, register } = useAuth();
@@ -18,11 +19,12 @@ export function LoginPage() {
     setLoading(true);
     try {
       if (isRegister) {
-        await register(email, password, name);
+        await register(email, password, name, role);
+        navigate(role === 'COACH' ? '/coach' : '/dashboard');
       } else {
         await login(email, password);
+        navigate('/dashboard'); // ProtectedRoute redirects coaches to /coach
       }
-      navigate('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {
@@ -54,6 +56,36 @@ export function LoginPage() {
                 required={isRegister}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
               />
+            </div>
+          )}
+
+          {isRegister && (
+            <div>
+              <span className="block text-sm font-medium text-gray-700 mb-1">
+                I am a…
+              </span>
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Account type">
+                {([
+                  { value: 'ORGANIZER', label: 'Organizer', hint: 'Run competitions' },
+                  { value: 'COACH', label: 'Coach', hint: 'Register my athletes' },
+                ] as const).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={role === opt.value}
+                    onClick={() => setRole(opt.value)}
+                    className={`rounded-md border px-3 py-2.5 text-left transition-colors ${
+                      role === opt.value
+                        ? 'border-[#0a3a7a] bg-[#0a3a7a]/5 ring-1 ring-[#0a3a7a]'
+                        : 'border-gray-300 hover:border-gray-400'
+                    }`}
+                  >
+                    <span className="block text-sm font-medium text-gray-900">{opt.label}</span>
+                    <span className="block text-xs text-gray-500">{opt.hint}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 

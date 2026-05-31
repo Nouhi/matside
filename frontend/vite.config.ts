@@ -35,6 +35,7 @@ export default defineConfig({
       '/categories': sharedPrefix,
       '/competitors': sharedPrefix,
       '/mats': sharedPrefix,
+      '/coach': sharedPrefix,
       '/public': sharedPrefix,
       '/scoreboard': {
         target: 'http://localhost:3000',

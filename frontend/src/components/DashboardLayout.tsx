@@ -1,12 +1,19 @@
 import { useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
-import { Trophy, LogOut, Menu, X } from 'lucide-react';
+import { Trophy, Users, LogOut, Menu, X } from 'lucide-react';
 
 export function DashboardLayout() {
-  const { logout } = useAuth();
+  const { logout, role } = useAuth();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Nav is role-aware: a coach manages athletes, an organizer runs competitions.
+  const nav =
+    role === 'COACH'
+      ? { to: '/coach', icon: Users, label: 'My Athletes' }
+      : { to: '/dashboard/competitions', icon: Trophy, label: 'Competitions' };
+  const NavIcon = nav.icon;
 
   function handleLogout() {
     logout();
@@ -33,7 +40,8 @@ export function DashboardLayout() {
 
         <nav className="p-4 space-y-1">
           <NavLink
-            to="/dashboard/competitions"
+            to={nav.to}
+            end
             onClick={() => setSidebarOpen(false)}
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
@@ -41,8 +49,8 @@ export function DashboardLayout() {
               }`
             }
           >
-            <Trophy size={18} />
-            Competitions
+            <NavIcon size={18} />
+            {nav.label}
           </NavLink>
         </nav>
 

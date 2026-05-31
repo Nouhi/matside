@@ -61,6 +61,29 @@ export async function requireCompetitorAccess(
   return competitor;
 }
 
+/**
+ * Coach ownership check: the competitor must have been registered BY this coach
+ * (registeredById === coachUserId). Distinct from requireCompetitorAccess, which
+ * checks organizer ownership of the whole competition. A coach can only touch the
+ * athletes they personally registered — never another coach's, never an
+ * organizer-registered one. Returns the loaded competitor + competition.
+ */
+export async function requireOwnRegistration(
+  prisma: PrismaLike,
+  competitorId: string,
+  coachUserId: string,
+): Promise<CompetitorWithCompetition> {
+  const competitor = await prisma.competitor.findUnique({
+    where: { id: competitorId },
+    include: { competition: true },
+  });
+  if (!competitor) throw new NotFoundException('Competitor not found');
+  if (competitor.registeredById !== coachUserId) {
+    throw new ForbiddenException();
+  }
+  return competitor;
+}
+
 export async function requireCategoryAccess(
   prisma: PrismaLike,
   categoryId: string,
