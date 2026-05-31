@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { Trophy, Medal, AlertTriangle, Loader, Download } from 'lucide-react';
+import { Trophy, Medal, AlertTriangle, Loader, Download, ListOrdered } from 'lucide-react';
 import { bracketLabel } from '@/lib/bracket';
 import { toast } from '@/lib/toast';
+import { EmptyState } from '@/components/EmptyState';
 
 interface CompetitorRef {
   id: string;
@@ -85,9 +86,11 @@ export function StandingsTab({ competitionId }: { competitionId: string }) {
   const categories = data ?? [];
   if (categories.length === 0) {
     return (
-      <div className="p-6 text-center text-gray-500 text-sm">
-        No categories yet. Generate categories and brackets first.
-      </div>
+      <EmptyState
+        icon={ListOrdered}
+        title="No standings yet"
+        context="Generate categories and brackets first — standings appear here as matches are scored."
+      />
     );
   }
 

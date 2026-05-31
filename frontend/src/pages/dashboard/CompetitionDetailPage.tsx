@@ -2,7 +2,8 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
-import { MapPin, Calendar, Users, Copy, Check, Layers, Swords, Share2, Scale, AlertTriangle } from 'lucide-react';
+import { MapPin, Calendar, Users, Copy, Check, Layers, Swords, Share2, Scale, AlertTriangle, LayoutGrid } from 'lucide-react';
+import { EmptyState } from '@/components/EmptyState';
 import { useMemo, useState, type ComponentProps } from 'react';
 import { BracketView } from '@/components/BracketView';
 import { StandingsTab } from '@/components/StandingsTab';
@@ -455,7 +456,13 @@ function CompetitorsTab({
   const [weightValue, setWeightValue] = useState('');
 
   if (competitors.length === 0) {
-    return <div className="p-6 text-center text-gray-500">No competitors registered yet</div>;
+    return (
+      <EmptyState
+        icon={Users}
+        title="No competitors registered yet"
+        context="Share the registration link so athletes can sign up, or add them during weigh-in."
+      />
+    );
   }
 
   return (
@@ -622,9 +629,11 @@ function WeighInTab({
 
   if (competitors.length === 0) {
     return (
-      <div className="p-6 text-center text-gray-500">
-        No competitors registered yet.
-      </div>
+      <EmptyState
+        icon={Users}
+        title="No competitors to weigh in"
+        context="Competitors appear here once they register. Share the registration link to get started."
+      />
     );
   }
 
@@ -895,9 +904,11 @@ function CategoriesTab({
 
   if (categories.length === 0) {
     return (
-      <div className="p-6 text-center text-gray-500">
-        No categories generated yet. Advance to WEIGH_IN status and generate categories.
-      </div>
+      <EmptyState
+        icon={Layers}
+        title="No categories generated yet"
+        context="Advance the competition to WEIGH_IN status, then generate IJF categories from the weighed-in athletes."
+      />
     );
   }
 
@@ -1042,7 +1053,11 @@ function MatsTab({ competitionId, mats }: { competitionId: string; mats: Mat[] }
       </div>
 
       {mats.length === 0 && (
-        <p className="text-gray-500 text-sm">No mats created yet</p>
+        <EmptyState
+          icon={LayoutGrid}
+          title="No mats created yet"
+          context="Create mats above, then auto-assign categories to balance the competition across them."
+        />
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
