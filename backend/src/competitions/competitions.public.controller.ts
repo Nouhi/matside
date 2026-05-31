@@ -13,6 +13,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { BracketsService } from '../brackets/brackets.service';
 import { StandingsService } from '../standings/standings.service';
 import { SchedulerService } from '../scoreboard/scheduler.service';
+import { Public } from '../auth/public.decorator';
 
 // Public spectator-facing endpoints. No auth, no PII, light cache headers
 // so a spectator URL going viral on Instagram doesn't melt the API. Every
@@ -65,6 +66,7 @@ function maybe304(req: Request, res: Response, etag: string): boolean {
   return false;
 }
 
+@Public()
 @Controller('public/competitions')
 export class PublicCompetitionsController {
   constructor(

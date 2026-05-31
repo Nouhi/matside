@@ -6,7 +6,6 @@ import {
   Patch,
   Post,
   Req,
-  UseGuards,
 } from '@nestjs/common';
 import * as express from 'express';
 import {
@@ -21,8 +20,9 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
-import { Gender, RegistrationStatus } from '@prisma/client';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { Gender, RegistrationStatus, UserRole } from '@prisma/client';
+import { Roles } from '../auth/roles.decorator';
+import { Public } from '../auth/public.decorator';
 import { CompetitorsService } from './competitors.service';
 
 export class RegisterCompetitorDto {
@@ -80,6 +80,8 @@ export class UpdateWeightDto {
 export class CompetitorsController {
   constructor(private competitorsService: CompetitorsService) {}
 
+  // Public: competitor self-registration via the organizer's shared link.
+  @Public()
   @Post()
   register(
     @Param('competitionId') competitionId: string,
@@ -97,13 +99,15 @@ export class CompetitorsController {
     });
   }
 
+  // Public: the spectator/registration pages list competitors.
+  @Public()
   @Get()
   findAll(@Param('competitionId') competitionId: string) {
     return this.competitorsService.findAll(competitionId);
   }
 
   @Patch(':id/status')
-  @UseGuards(JwtAuthGuard)
+  @Roles(UserRole.ORGANIZER, UserRole.ADMIN)
   updateStatus(
     @Req() req: express.Request,
     @Param('id') id: string,
@@ -114,7 +118,7 @@ export class CompetitorsController {
   }
 
   @Patch(':id/weight')
-  @UseGuards(JwtAuthGuard)
+  @Roles(UserRole.ORGANIZER, UserRole.ADMIN)
   updateWeight(
     @Req() req: express.Request,
     @Param('id') id: string,
@@ -125,7 +129,7 @@ export class CompetitorsController {
   }
 
   @Patch(':id/withdraw')
-  @UseGuards(JwtAuthGuard)
+  @Roles(UserRole.ORGANIZER, UserRole.ADMIN)
   withdraw(
     @Req() req: express.Request,
     @Param('id') id: string,
@@ -137,7 +141,7 @@ export class CompetitorsController {
   // Atomic weigh-in: records weight, sets WEIGHED_IN, returns IJF projection
   // before/after so the UI can show "bumped from -73 to -81kg".
   @Patch(':id/weigh-in')
-  @UseGuards(JwtAuthGuard)
+  @Roles(UserRole.ORGANIZER, UserRole.ADMIN)
   weighIn(
     @Req() req: express.Request,
     @Param('id') id: string,
@@ -150,7 +154,7 @@ export class CompetitorsController {
   // Organizer-driven disqualification (distinct from withdraw, which is
   // pre-bracket self-removal). Works at any competition status.
   @Patch(':id/disqualify')
-  @UseGuards(JwtAuthGuard)
+  @Roles(UserRole.ORGANIZER, UserRole.ADMIN)
   disqualify(
     @Req() req: express.Request,
     @Param('id') id: string,

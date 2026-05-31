@@ -1,13 +1,8 @@
-import {
-  Controller,
-  Get,
-  Param,
-  Post,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Param, Post, Req } from '@nestjs/common';
 import * as express from 'express';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { UserRole } from '@prisma/client';
+import { Roles } from '../auth/roles.decorator';
+import { Public } from '../auth/public.decorator';
 import { BracketsService } from './brackets.service';
 
 @Controller('competitions/:competitionId/brackets')
@@ -15,7 +10,7 @@ export class BracketsController {
   constructor(private bracketsService: BracketsService) {}
 
   @Post('generate')
-  @UseGuards(JwtAuthGuard)
+  @Roles(UserRole.ORGANIZER, UserRole.ADMIN)
   generate(
     @Req() req: express.Request,
     @Param('competitionId') competitionId: string,
@@ -24,6 +19,8 @@ export class BracketsController {
     return this.bracketsService.generateBrackets(competitionId, user.sub);
   }
 
+  // Public: spectators view brackets.
+  @Public()
   @Get()
   getBrackets(@Param('competitionId') competitionId: string) {
     return this.bracketsService.getBrackets(competitionId);

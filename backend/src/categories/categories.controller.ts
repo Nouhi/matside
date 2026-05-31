@@ -6,14 +6,14 @@ import {
   Patch,
   Post,
   Req,
-  UseGuards,
 } from '@nestjs/common';
 import * as express from 'express';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { UserRole } from '@prisma/client';
+import { Roles } from '../auth/roles.decorator';
 import { CategoriesService } from './categories.service';
 
 @Controller()
-@UseGuards(JwtAuthGuard)
+@Roles(UserRole.ORGANIZER, UserRole.ADMIN)
 export class CategoriesController {
   constructor(private categoriesService: CategoriesService) {}
 
