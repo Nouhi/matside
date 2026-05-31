@@ -348,9 +348,23 @@ export class CompetitorsService {
     }));
   }
 
-  /** Coach withdraws an athlete they registered. Ownership-scoped to the coach. */
+  /**
+   * Coach withdraws an athlete they registered. Ownership-scoped to the coach.
+   *
+   * Status-gated to REGISTRATION only. Nulling categoryId after brackets exist
+   * would orphan the competitor from category-scoped standings while match rows
+   * still reference them by id — the silent-corruption class recordWeight is
+   * hardened against. Once a competition is past REGISTRATION, mid-bracket
+   * removal is the organizer's job (disqualify, which preserves categoryId so
+   * existing matches resolve as walkovers).
+   */
   async withdrawAsCoach(id: string, coachUserId: string) {
-    await requireOwnRegistration(this.prisma, id, coachUserId);
+    const competitor = await requireOwnRegistration(this.prisma, id, coachUserId);
+    if (competitor.competition.status !== 'REGISTRATION') {
+      throw new BadRequestException(
+        'Athletes can only be withdrawn before weigh-in. Contact the organizer to remove a competitor after that.',
+      );
+    }
     return this.prisma.competitor.update({
       where: { id },
       data: { registrationStatus: RegistrationStatus.WITHDRAWN, categoryId: null },

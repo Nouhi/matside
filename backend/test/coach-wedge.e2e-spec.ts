@@ -181,4 +181,30 @@ describe('Coach wedge (registration + scoped my-athletes/withdraw)', () => {
     const row = await prisma.competitor.findUnique({ where: { id: res.body.id } });
     expect(row?.registeredById).toBeNull();
   });
+
+  it('coach cannot withdraw once the competition is past REGISTRATION (no mid-bracket orphaning)', async () => {
+    // Coach A registers a fresh athlete while open...
+    const reg = await request(app.getHttpServer())
+      .post(`/coach/competitions/${competitionId}/competitors`)
+      .set(auth(coachAToken))
+      .send(newCompetitor({ firstName: 'Locked' }))
+      .expect(201);
+    // ...then the competition advances past REGISTRATION (brackets forming).
+    await prisma.competition.update({
+      where: { id: competitionId },
+      data: { status: 'WEIGH_IN' },
+    });
+    // Withdraw must now be refused (categoryId-null would orphan standings).
+    await request(app.getHttpServer())
+      .patch(`/coach/competitors/${reg.body.id}/withdraw`)
+      .set(auth(coachAToken))
+      .expect(400);
+    const still = await prisma.competitor.findUnique({ where: { id: reg.body.id } });
+    expect(still?.registrationStatus).toBe('REGISTERED'); // unchanged
+    // Restore for any later cases / cleanup.
+    await prisma.competition.update({
+      where: { id: competitionId },
+      data: { status: 'REGISTRATION' },
+    });
+  });
 });
