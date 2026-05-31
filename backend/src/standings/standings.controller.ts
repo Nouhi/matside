@@ -1,7 +1,11 @@
 import { Controller, Get, Param, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { StandingsService } from './standings.service';
+import { Public } from '../auth/public.decorator';
 
+// Standings (incl. CSV export) are public — spectators read them and the
+// public spectator controller serves the same data. No auth.
+@Public()
 @Controller('competitions/:competitionId/standings')
 export class StandingsController {
   constructor(private standingsService: StandingsService) {}

@@ -6,11 +6,12 @@ import {
   Patch,
   Post,
   Req,
-  UseGuards,
 } from '@nestjs/common';
 import * as express from 'express';
 import { IsInt, IsString, Min } from 'class-validator';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { UserRole } from '@prisma/client';
+import { Roles } from '../auth/roles.decorator';
+import { Public } from '../auth/public.decorator';
 import { MatService } from './mat.service';
 
 class CreateMatsDto {
@@ -34,7 +35,7 @@ export class MatController {
   constructor(private matService: MatService) {}
 
   @Post('competitions/:competitionId/mats')
-  @UseGuards(JwtAuthGuard)
+  @Roles(UserRole.ORGANIZER, UserRole.ADMIN)
   create(
     @Param('competitionId') competitionId: string,
     @Body() dto: CreateMatsDto,
@@ -43,13 +44,15 @@ export class MatController {
     return this.matService.createMats(competitionId, dto.count, (req.user as { sub: string }).sub);
   }
 
+  // Public: spectator/display views read mat state.
+  @Public()
   @Get('competitions/:competitionId/mats')
   list(@Param('competitionId') competitionId: string) {
     return this.matService.getMats(competitionId);
   }
 
   @Patch('mats/:matId/assign')
-  @UseGuards(JwtAuthGuard)
+  @Roles(UserRole.ORGANIZER, UserRole.ADMIN)
   assign(
     @Param('matId') matId: string,
     @Body() dto: AssignMatchDto,
@@ -58,6 +61,9 @@ export class MatController {
     return this.matService.assignMatchToMat(matId, dto.matchId, (req.user as { sub: string }).sub);
   }
 
+  // Public: a table official verifies the mat PIN without a JWT — this is how
+  // they authenticate INTO the scoring tablet.
+  @Public()
   @Post('mats/:matId/verify-pin')
   async verifyPin(
     @Param('matId') matId: string,

@@ -4,6 +4,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -14,19 +15,27 @@ export class AuthService {
     private jwt: JwtService,
   ) {}
 
-  async register(email: string, password: string, name: string) {
+  async register(
+    email: string,
+    password: string,
+    name: string,
+    role: UserRole = UserRole.ORGANIZER,
+  ) {
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) {
       throw new ConflictException('Email already registered');
     }
 
+    // ADMIN is never self-assignable at signup — the controller DTO only admits
+    // ORGANIZER | COACH, but guard here too in case of a future caller.
+    const safeRole = role === UserRole.ADMIN ? UserRole.ORGANIZER : role;
+
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await this.prisma.user.create({
-      data: { email, passwordHash, name },
+      data: { email, passwordHash, name, role: safeRole },
     });
 
-    const payload = { sub: user.id, email: user.email };
-    return { access_token: this.jwt.sign(payload) };
+    return { access_token: this.sign(user.id, user.email, user.role) };
   }
 
   async login(email: string, password: string) {
@@ -40,7 +49,10 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const payload = { sub: user.id, email: user.email };
-    return { access_token: this.jwt.sign(payload) };
+    return { access_token: this.sign(user.id, user.email, user.role) };
+  }
+
+  private sign(sub: string, email: string, role: UserRole) {
+    return this.jwt.sign({ sub, email, role });
   }
 }

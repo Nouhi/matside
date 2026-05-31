@@ -6,11 +6,13 @@ import {
   Param,
 } from '@nestjs/common';
 import { AthletesService } from './athletes.service';
+import { Public } from '../auth/public.decorator';
 
 // Athlete profile read is public — same pattern as the spectator page.
 // Sanitization is at the service boundary (no email, no DOB beyond age,
 // no registrationStatus stigma). If you want organizer-grade detail,
 // hit the per-competitor endpoints.
+@Public()
 @Controller('public/athletes')
 export class PublicAthletesController {
   constructor(private athletesService: AthletesService) {}

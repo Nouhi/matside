@@ -7,7 +7,6 @@ import {
   Patch,
   Post,
   Req,
-  UseGuards,
 } from '@nestjs/common';
 import * as express from 'express';
 import {
@@ -22,7 +21,8 @@ import {
   MinLength,
 } from 'class-validator';
 import { CompetitionStatus } from '@prisma/client';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { Roles } from '../auth/roles.decorator';
+import { UserRole } from '@prisma/client';
 import { CompetitionsService } from './competitions.service';
 
 export class CreateCompetitionDto {
@@ -70,7 +70,7 @@ export class UpdateCompetitionDto {
 }
 
 @Controller('competitions')
-@UseGuards(JwtAuthGuard)
+@Roles(UserRole.ORGANIZER, UserRole.ADMIN)
 export class CompetitionsController {
   constructor(private competitionsService: CompetitionsService) {}
 

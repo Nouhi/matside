@@ -30,6 +30,33 @@ Approved mockup reference: `~/.gstack/projects/Nouhi-matside/designs/scoreboard-
 
 ## DEFER — Re-evaluate only when a real customer reports it
 
+### SEC-WS — Scoreboard gateway is outside the role-aware auth layer
+
+**What:** All live match mutations on the Socket.IO scoreboard gateway
+(`score-event`, `end-match`, `start-match`, osaekomi, golden-score) authorize via
+`isController()` (shared mat-PIN room membership), NOT the JWT/role guards. NestJS global
+`APP_GUARD`s don't apply to gateways, so the highest-value mutation surface (altering live
+results) is governed by a parallel, weaker mechanism than the REST routes.
+**Why defer:** Pre-existing (predates the auth layer), unchanged by PR1, and the mat-PIN
+model is intentional for table officials who don't have organizer accounts. Surfaced by
+the PR1 security review as a future hardening candidate, not a regression.
+**Re-evaluate when:** Coach/competitor accounts make "who can touch the scoreboard" a
+finer-grained question, or a tournament reports an unauthorized score change.
+**Files:** `backend/src/scoreboard/scoreboard.gateway.ts`.
+
+### COACH-P3 — Athlete typeahead in the coach register form
+
+**What:** A "my prior athletes" typeahead so a coach re-entering a known athlete into a
+new event picks from history instead of re-typing name/DOB/belt.
+**Why defer:** Surfaced in the coach-accounts design review (DSN-4). The backend's
+existing athlete-dedup (email/licenseNumber) already makes re-entry *correct* — a coach
+typing the same kid twice auto-links to one global Athlete. The typeahead only saves
+re-typing (pre-fill), not correctness. Needs a scoped endpoint ("athletes I've
+registered") + a typeahead component; athletes are global (no per-coach ownership) so the
+search scoping is its own small question.
+**Re-evaluate when:** A coach with a stable multi-event roster complains about re-entering
+the same athletes. Plan: `~/.gstack/projects/Nouhi-matside/coach-accounts-plan-20260530.md`.
+
 ### F2.B — Control offline queue (IndexedDB)
 
 **What:** Queue score events in IndexedDB when socket drops, replay on reconnect.
@@ -93,11 +120,15 @@ These 8 items will not ship. Rationale per item:
 
 Not addressed by `/autoplan` because they were never planned. Surfaced here as the actual next-step list. Pick one for the next `/autoplan` invocation.
 
-1. **Payments / billing** — Stripe direct, idempotent webhooks, organizer paywall. `T1 #3` in the in-memory backlog but no design doc. **Highest priority.**
+**Decision (2026-05-29):** Payments is deferred to LAST — build out the product (accounts, notifications, multi-event) before adding the paywall. Nothing else depends on Payments, so order is free. Do not re-suggest it as "next" until the items below have landed.
+
+1. **Coach / club manager accounts** — Judo's actual buyer in clubs. `T2 #9`. Already has `COACH` enum in Prisma schema (ARCH-PREP shipped) but no UX, no scoped access enforcement.
 2. **Competitor accounts** — A competitor with a login who sees their rating across events. Cross-event retention engine.
-3. **Coach / club manager accounts** — Judo's actual buyer in clubs. `T2 #9`. Already has `COACH` enum in Prisma schema (ARCH-PREP shipped) but no UX, no scoped access enforcement.
-4. **Email / SMS notifications** — Weigh-in reminders, "you're on Mat 2 in 5 min," results to family. `T1 #6`. Tournament-day venue magic.
-5. **Multi-tournament / season view** — Organizer running 6 events/year wants templates and reuse.
+3. **Email / SMS notifications** — Weigh-in reminders, "you're on Mat 2 in 5 min," results to family. `T1 #6`. Tournament-day venue magic.
+4. **Multi-tournament / season view** — Organizer running 6 events/year wants templates and reuse.
+
+**Deferred to last:**
+- **Payments / billing** — Stripe direct, idempotent webhooks, organizer paywall. `T1 #3`, no design doc yet. Highest *business* value but intentionally last: monetize a product people already use. Needs `/office-hours` scoping when picked up.
 
 **Shipped since this list was written:**
 - ~~Federation results export~~ — CSV export shipped (see SHIPPED table). IJF-specific format still open: revisit when a federation provides a concrete spec.
