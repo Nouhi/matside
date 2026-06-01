@@ -11,6 +11,7 @@ import {
 import * as express from 'express';
 import {
   IsDateString,
+  IsEmail,
   IsEnum,
   IsInt,
   IsOptional,
@@ -69,6 +70,12 @@ export class UpdateCompetitionDto {
   maxEntriesPerCategory?: number;
 }
 
+export class AddCoachDto {
+  @IsEmail()
+  @MaxLength(100)
+  email: string;
+}
+
 @Controller('competitions')
 @Roles(UserRole.ORGANIZER, UserRole.ADMIN)
 export class CompetitionsController {
@@ -122,5 +129,33 @@ export class CompetitionsController {
   delete(@Req() req: express.Request, @Param('id') id: string) {
     const user = req.user as { sub: string; email: string };
     return this.competitionsService.delete(id, user.sub);
+  }
+
+  // --- Coach access management (organizer-gating) --------------------------
+
+  @Get(':id/coaches')
+  listCoaches(@Req() req: express.Request, @Param('id') id: string) {
+    const user = req.user as { sub: string; email: string };
+    return this.competitionsService.listCoaches(id, user.sub);
+  }
+
+  @Post(':id/coaches')
+  addCoach(
+    @Req() req: express.Request,
+    @Param('id') id: string,
+    @Body() dto: AddCoachDto,
+  ) {
+    const user = req.user as { sub: string; email: string };
+    return this.competitionsService.addCoach(id, user.sub, dto.email);
+  }
+
+  @Delete(':id/coaches/:coachUserId')
+  removeCoach(
+    @Req() req: express.Request,
+    @Param('id') id: string,
+    @Param('coachUserId') coachUserId: string,
+  ) {
+    const user = req.user as { sub: string; email: string };
+    return this.competitionsService.removeCoach(id, user.sub, coachUserId);
   }
 }

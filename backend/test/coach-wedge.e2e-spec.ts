@@ -84,9 +84,22 @@ describe('Coach wedge (registration + scoped my-athletes/withdraw)', () => {
       },
     });
     competitionId = competition.id;
+
+    // PR3 gating: both coaches are approved for this competition so the
+    // scoping/withdraw tests below exercise the post-approval flow. A separate
+    // un-approved coach is tested for the 403 gate.
+    await prisma.competitionCoach.createMany({
+      data: [
+        { competitionId, coachUserId: coachA.id },
+        { competitionId, coachUserId: coachB.id },
+      ],
+    });
   });
 
   afterAll(async () => {
+    await prisma.competitionCoach.deleteMany({
+      where: { competition: { name: { startsWith: TEST_PREFIX } } },
+    });
     await prisma.competitor.deleteMany({
       where: { competition: { name: { startsWith: TEST_PREFIX } } },
     });

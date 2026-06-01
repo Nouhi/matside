@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -320,6 +321,48 @@ export class CompetitorsService {
   // (registeredById === coachUserId). Enforced via requireOwnRegistration, NOT
   // organizer ownership — a coach never touches another coach's or an
   // organizer-registered athlete.
+
+  /**
+   * Competitions this coach can register into right now: approved
+   * (CompetitionCoach link) AND open (REGISTRATION status). This is what the
+   * coach's register-athlete picker shows — not all open competitions, only the
+   * ones an organizer has opened to them.
+   */
+  async findRegistrableCompetitions(coachUserId: string) {
+    const links = await this.prisma.competitionCoach.findMany({
+      where: { coachUserId, competition: { status: 'REGISTRATION' } },
+      select: {
+        competition: { select: { id: true, name: true, date: true, location: true } },
+      },
+      orderBy: { competition: { date: 'asc' } },
+    });
+    return links.map((l) => l.competition);
+  }
+
+  /**
+   * Register an athlete AS a coach. PR3 gate: the coach must have been approved
+   * for this competition (a CompetitionCoach link exists). Without the link →
+   * 403, even for an open competition. The link check runs before the shared
+   * register() (which still enforces REGISTRATION status + capacity).
+   */
+  async registerAsCoach(
+    competitionId: string,
+    coachUserId: string,
+    data: Parameters<CompetitorsService['register']>[1],
+  ): Promise<CompetitorWithProjection> {
+    const link = await this.prisma.competitionCoach.findUnique({
+      where: {
+        competitionId_coachUserId: { competitionId, coachUserId },
+      },
+      select: { id: true },
+    });
+    if (!link) {
+      throw new ForbiddenException(
+        'You are not approved to register athletes for this competition. Ask the organizer to add you.',
+      );
+    }
+    return this.register(competitionId, data, { registeredById: coachUserId });
+  }
 
   /**
    * Every athlete this coach has registered, across all competitions, newest
