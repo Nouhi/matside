@@ -7,6 +7,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { useMemo, useState, type ComponentProps } from 'react';
 import { BracketView } from '@/components/BracketView';
 import { StandingsTab } from '@/components/StandingsTab';
+import { CoachesTab } from '@/components/CoachesTab';
 import { WeighInModal } from '@/components/WeighInModal';
 import type { IjfProjection } from '@/lib/ijf';
 import { bracketLabel, bracketPillClass } from '@/lib/bracket';
@@ -122,7 +123,7 @@ const REG_STATUS_STYLES: Record<string, string> = {
 export function CompetitionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'competitors' | 'weigh-in' | 'categories' | 'brackets' | 'mats' | 'standings'>('competitors');
+  const [activeTab, setActiveTab] = useState<'competitors' | 'weigh-in' | 'categories' | 'brackets' | 'mats' | 'standings' | 'coaches'>('competitors');
 
   const { data: competition, isLoading: loadingComp } = useQuery<Competition>({
     queryKey: ['competition', id],
@@ -359,7 +360,7 @@ export function CompetitionDetailPage() {
       <div className="bg-white rounded-lg border border-gray-200">
         <div className="border-b border-gray-200">
           <nav className="flex">
-            {(['competitors', 'weigh-in', 'categories', 'brackets', 'mats', 'standings'] as const).map((tab) => {
+            {(['competitors', 'weigh-in', 'categories', 'brackets', 'mats', 'standings', 'coaches'] as const).map((tab) => {
               // Weigh-in tab is contextual: only show during WEIGH_IN status.
               if (tab === 'weigh-in' && competition.status !== 'WEIGH_IN') return null;
               return (
@@ -383,6 +384,7 @@ export function CompetitionDetailPage() {
                   {tab === 'brackets' && 'Brackets'}
                   {tab === 'mats' && `Mats (${mats.length})`}
                   {tab === 'standings' && 'Standings'}
+                  {tab === 'coaches' && 'Coaches'}
                 </button>
               );
             })}
@@ -431,6 +433,10 @@ export function CompetitionDetailPage() {
 
         {activeTab === 'standings' && (
           <StandingsTab competitionId={id!} />
+        )}
+
+        {activeTab === 'coaches' && (
+          <CoachesTab competitionId={id!} />
         )}
       </div>
     </div>
