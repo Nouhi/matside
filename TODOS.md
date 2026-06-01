@@ -27,6 +27,7 @@ Approved mockup reference: `~/.gstack/projects/Nouhi-matside/designs/scoreboard-
 | #24 | Chore | gitignore `.gstack/`. |
 | — | Federation CSV export | `GET /competitions/:id/standings/export` streams a UTF-8-BOM CSV of every category's placements (RFC-4180 escaping); "Export CSV" button on the standings tab. Resolves MISSING #6. |
 | — | Observability foundations | Global exception filter (consistent JSON errors + logging), per-request logging interceptor, `GET /health` with DB ping (503 when down), frontend `ErrorBoundary` + query-error toasts. Sentry deferred until a deploy target exists. Resolves MISSING #7. |
+| #27–#28 + this | Coach / club manager accounts | Role-aware authz layer (#27), coach accounts register + track club athletes (#28), and organizer-gating (this branch): `CompetitionCoach` join table, organizer approves coaches by email (enumeration-safe), coach registration gated to approved+open events, Manage-Coaches organizer tab. Resolves MISSING #1. |
 
 ## DEFER — Re-evaluate only when a real customer reports it
 
@@ -122,7 +123,7 @@ Not addressed by `/autoplan` because they were never planned. Surfaced here as t
 
 **Decision (2026-05-29):** Payments is deferred to LAST — build out the product (accounts, notifications, multi-event) before adding the paywall. Nothing else depends on Payments, so order is free. Do not re-suggest it as "next" until the items below have landed.
 
-1. **Coach / club manager accounts** — Judo's actual buyer in clubs. `T2 #9`. Already has `COACH` enum in Prisma schema (ARCH-PREP shipped) but no UX, no scoped access enforcement.
+1. ~~**Coach / club manager accounts**~~ — SHIPPED (PRs #27, #28 + organizer-gating branch). Coaches have logins, scoped athlete tracking, and organizer-gated registration. See SHIPPED-since table. Remaining polish (athlete typeahead) tracked as COACH-P3 in DEFER.
 2. **Competitor accounts** — A competitor with a login who sees their rating across events. Cross-event retention engine.
 3. **Email / SMS notifications** — Weigh-in reminders, "you're on Mat 2 in 5 min," results to family. `T1 #6`. Tournament-day venue magic.
 4. **Multi-tournament / season view** — Organizer running 6 events/year wants templates and reuse.
