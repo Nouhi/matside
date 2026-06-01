@@ -256,6 +256,26 @@ describe('Coach gating (organizer approval)', () => {
     expect(after).toBe(1);
   });
 
+  it('approval tolerates email-casing mismatch (organizer typed a different case)', async () => {
+    // A coach stored with mixed-case email must still be approvable when the
+    // organizer types a different case — otherwise the enumeration-safe
+    // {added:false} silently locks the coach out with no diagnostic.
+    const mixed = `${TEST_PREFIX}-Mixed-Case-${Math.random().toString(36).slice(2, 6)}@X.com`;
+    const mixedCoach = await prisma.user.create({
+      data: { email: mixed, passwordHash: 'x', role: 'COACH' },
+    });
+    await request(app.getHttpServer())
+      .post(`/competitions/${competitionId}/coaches`)
+      .set(auth(organizerToken))
+      .send({ email: mixed.toLowerCase() })
+      .expect(201)
+      .expect((r) => expect(r.body).toEqual({ added: true }));
+    const links = await prisma.competitionCoach.count({
+      where: { competitionId, coachUserId: mixedCoach.id },
+    });
+    expect(links).toBe(1);
+  });
+
   it('add-coach rejects a malformed email (400) before reaching the service', () =>
     request(app.getHttpServer())
       .post(`/competitions/${competitionId}/coaches`)

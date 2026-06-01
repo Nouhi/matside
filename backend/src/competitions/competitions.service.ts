@@ -113,7 +113,16 @@ export class CompetitionsService {
    */
   async addCoach(competitionId: string, organizerId: string, email: string) {
     await this.findOne(competitionId, organizerId); // ownership gate
-    const coach = await this.prisma.user.findUnique({ where: { email } });
+    // Emails are stored verbatim (case-sensitive unique), so an organizer typing
+    // a different case than the coach signed up with would otherwise silently
+    // fail to approve — and the enumeration-safe {added:false} response gives no
+    // hint why. Match exactly first, then fall back to a case-insensitive lookup.
+    let coach = await this.prisma.user.findUnique({ where: { email } });
+    if (!coach) {
+      coach = await this.prisma.user.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' } },
+      });
+    }
     if (!coach || coach.role !== UserRole.COACH) {
       // Enumeration-safe: identical outcome to "added but already linked".
       return { added: false };
