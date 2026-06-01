@@ -36,6 +36,7 @@ describe('Coach gating (organizer approval)', () => {
   let coachToken: string;
   let coachId: string;
   let coachEmail: string;
+  let otherOrganizerEmail: string;
 
   const auth = (t: string) => ({ Authorization: `Bearer ${t}` });
   const newCompetitor = (over: object = {}) => ({
@@ -63,8 +64,9 @@ describe('Coach gating (organizer approval)', () => {
     const organizer = await prisma.user.create({
       data: { email: `${TEST_PREFIX}-org-${s}@x.com`, passwordHash: 'x', role: 'ORGANIZER' },
     });
+    otherOrganizerEmail = `${TEST_PREFIX}-org2-${s}@x.com`;
     const other = await prisma.user.create({
-      data: { email: `${TEST_PREFIX}-org2-${s}@x.com`, passwordHash: 'x', role: 'ORGANIZER' },
+      data: { email: otherOrganizerEmail, passwordHash: 'x', role: 'ORGANIZER' },
     });
     coachEmail = `${TEST_PREFIX}-coach-${s}@x.com`;
     const coach = await prisma.user.create({
@@ -128,6 +130,22 @@ describe('Coach gating (organizer approval)', () => {
       .send({ email: `${TEST_PREFIX}-nobody@x.com` })
       .expect(201)
       .expect((r) => expect(r.body).toEqual({ added: false })));
+
+  it('add-coach with a real NON-coach email (an organizer) returns added:false, no link', async () => {
+    // Enumeration-safety must hold for the wrong-role case too: an email that
+    // belongs to a real account but isn't a COACH must look identical to an
+    // unknown email — same {added:false}, and no CompetitionCoach row created.
+    await request(app.getHttpServer())
+      .post(`/competitions/${competitionId}/coaches`)
+      .set(auth(organizerToken))
+      .send({ email: otherOrganizerEmail })
+      .expect(201)
+      .expect((r) => expect(r.body).toEqual({ added: false }));
+    const links = await prisma.competitionCoach.count({
+      where: { competitionId, coach: { email: otherOrganizerEmail } },
+    });
+    expect(links).toBe(0);
+  });
 
   it('organizer approves the coach by email (added:true)', () =>
     request(app.getHttpServer())
