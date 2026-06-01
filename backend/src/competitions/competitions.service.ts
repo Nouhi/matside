@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CompetitionStatus } from '@prisma/client';
+import { CompetitionStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 const VALID_TRANSITIONS: Record<string, string> = {
@@ -105,11 +105,16 @@ export class CompetitionsService {
    * emails have accounts. Only links an existing COACH-role user; a non-coach
    * or unknown email is silently a no-op (added: false). Idempotent — a
    * duplicate add is a no-op, not a 409.
+   *
+   * Note: this is response-shape enumeration-safe, not timing-safe — a real
+   * coach email does an extra upsert write. The residual timing channel is only
+   * reachable by an authenticated organizer acting on a competition they own
+   * (the findOne gate runs first), so it's an accepted risk, not a leak.
    */
   async addCoach(competitionId: string, organizerId: string, email: string) {
     await this.findOne(competitionId, organizerId); // ownership gate
     const coach = await this.prisma.user.findUnique({ where: { email } });
-    if (!coach || coach.role !== 'COACH') {
+    if (!coach || coach.role !== UserRole.COACH) {
       // Enumeration-safe: identical outcome to "added but already linked".
       return { added: false };
     }

@@ -74,7 +74,7 @@ export function CoachesTab({ competitionId }: { competitionId: string }) {
         <button
           type="submit"
           disabled={add.isPending}
-          className="inline-flex items-center gap-1.5 rounded-md bg-[#0a3a7a] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#0c4690] disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-md bg-[#0a3a7a] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#0c4690] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a3a7a] focus-visible:ring-offset-2 disabled:opacity-50"
         >
           <UserPlus size={16} />
           Add coach
@@ -101,7 +101,7 @@ export function CoachesTab({ competitionId }: { competitionId: string }) {
                 onClick={() => remove.mutate(c.coachUserId)}
                 disabled={remove.isPending}
                 aria-label={`Remove ${c.email}`}
-                className="inline-flex items-center gap-1 rounded px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                className="inline-flex items-center gap-1 rounded px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:opacity-50"
               >
                 <X size={14} />
                 Remove

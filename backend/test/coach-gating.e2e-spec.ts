@@ -123,6 +123,18 @@ describe('Coach gating (organizer approval)', () => {
       .send({ email: coachEmail })
       .expect(403));
 
+  it('a non-owning organizer cannot list a competition’s coaches (403)', () =>
+    request(app.getHttpServer())
+      .get(`/competitions/${competitionId}/coaches`)
+      .set(auth(otherOrganizerToken))
+      .expect(403));
+
+  it('a non-owning organizer cannot revoke a coach (403)', () =>
+    request(app.getHttpServer())
+      .delete(`/competitions/${competitionId}/coaches/${coachId}`)
+      .set(auth(otherOrganizerToken))
+      .expect(403));
+
   it('add-coach is enumeration-safe: unknown email returns the same shape (added:false)', () =>
     request(app.getHttpServer())
       .post(`/competitions/${competitionId}/coaches`)
