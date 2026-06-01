@@ -21,6 +21,8 @@ model User {
   // Competitors registered by this user (organizer or coach acting on
   // behalf of an athlete). Public self-registrations leave this null.
   registeredCompetitors Competitor[]  @relation("RegisteredBy")
+  // Competitions this user (a coach) has been approved to register athletes into.
+  coachAccess           CompetitionCoach[]
 }
 
 enum UserRole {
@@ -54,11 +56,29 @@ model Competition {
   categories  Category[]
   competitors Competitor[]
   mats        Mat[]
+  coaches     CompetitionCoach[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([organizerId])
+}
+
+// Approval link: which coaches an organizer has opened a competition to. PR3
+// gates coach registration — a coach can only register athletes into (and see)
+// competitions where a row here exists. onDelete Cascade so removing a coach or
+// deleting a competition cleans up the link; past registrations (registeredById
+// on Competitor) survive independently.
+model CompetitionCoach {
+  id            String      @id @default(cuid())
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  coachUserId   String
+  coach         User        @relation(fields: [coachUserId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+
+  @@unique([competitionId, coachUserId])
+  @@index([coachUserId])
 }
 
 enum CompetitionStatus {
