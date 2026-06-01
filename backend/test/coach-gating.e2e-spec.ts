@@ -116,6 +116,30 @@ describe('Coach gating (organizer approval)', () => {
       .expect(200)
       .expect((r) => expect(r.body).toHaveLength(0)));
 
+  it('a coach cannot self-approve via the organizer endpoint (wrong role → 403)', () =>
+    // The organizer coach-management routes are @Roles(ORGANIZER, ADMIN). A COACH
+    // token hitting add-coach is the highest-value attack (self-approval) — the
+    // role guard must deny it before the ownership/enumeration logic runs.
+    request(app.getHttpServer())
+      .post(`/competitions/${competitionId}/coaches`)
+      .set(auth(coachToken))
+      .send({ email: coachEmail })
+      .expect(403));
+
+  it('an organizer token is denied on the coach-only routes (wrong role → 403)', async () => {
+    // The coach routes are @Roles(COACH). Prove the inverse deny-case for the
+    // new/changed endpoints, not just COACH-denied-on-organizer-routes.
+    await request(app.getHttpServer())
+      .get('/coach/competitions')
+      .set(auth(organizerToken))
+      .expect(403);
+    await request(app.getHttpServer())
+      .post(`/coach/competitions/${competitionId}/competitors`)
+      .set(auth(organizerToken))
+      .send(newCompetitor())
+      .expect(403);
+  });
+
   it('only the owning organizer can manage coaches (other organizer → 403)', () =>
     request(app.getHttpServer())
       .post(`/competitions/${competitionId}/coaches`)

@@ -5,7 +5,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Competitor, Gender, Prisma, RegistrationStatus } from '@prisma/client';
+import {
+  Competitor,
+  CompetitionStatus,
+  Gender,
+  Prisma,
+  RegistrationStatus,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   IjfProjection,
@@ -330,7 +336,10 @@ export class CompetitorsService {
    */
   async findRegistrableCompetitions(coachUserId: string) {
     const links = await this.prisma.competitionCoach.findMany({
-      where: { coachUserId, competition: { status: 'REGISTRATION' } },
+      where: {
+        coachUserId,
+        competition: { status: CompetitionStatus.REGISTRATION },
+      },
       select: {
         competition: { select: { id: true, name: true, date: true, location: true } },
       },
