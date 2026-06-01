@@ -231,4 +231,50 @@ describe('Coach gating (organizer approval)', () => {
     });
     expect(after).toBe(1);
   });
+
+  it('add-coach rejects a malformed email (400) before reaching the service', () =>
+    request(app.getHttpServer())
+      .post(`/competitions/${competitionId}/coaches`)
+      .set(auth(organizerToken))
+      .send({ email: 'not-an-email' })
+      .expect(400));
+
+  it('revoking a coach who has no link is idempotent (still removed:true)', () =>
+    // The previous test already removed this coach. deleteMany on zero rows must
+    // not throw — a second revoke looks identical to the first.
+    request(app.getHttpServer())
+      .delete(`/competitions/${competitionId}/coaches/${coachId}`)
+      .set(auth(organizerToken))
+      .expect(200)
+      .expect((r) => expect(r.body).toEqual({ removed: true })));
+
+  it("a coach approved for a non-open (DRAFT) competition does not see it in their registrable list", async () => {
+    // The registrable list is approved ∩ status:REGISTRATION. Approving a coach
+    // for a DRAFT competition must NOT surface it — the status filter excludes it.
+    const draft = await request(app.getHttpServer())
+      .post('/competitions')
+      .set(auth(organizerToken))
+      .send({ name: `${TEST_PREFIX}-draft`, date: new Date().toISOString() })
+      .expect(201);
+    const draftId = draft.body.id;
+    expect(draft.body.status).toBe('DRAFT');
+
+    await request(app.getHttpServer())
+      .post(`/competitions/${draftId}/coaches`)
+      .set(auth(organizerToken))
+      .send({ email: coachEmail })
+      .expect(201)
+      .expect((r) => expect(r.body).toEqual({ added: true }));
+
+    // Coach now has a link to the DRAFT comp (and none to the open one, revoked
+    // earlier) → registrable list excludes the DRAFT comp.
+    await request(app.getHttpServer())
+      .get('/coach/competitions')
+      .set(auth(coachToken))
+      .expect(200)
+      .expect((r) => {
+        const ids = (r.body as Array<{ id: string }>).map((c) => c.id);
+        expect(ids).not.toContain(draftId);
+      });
+  });
 });
