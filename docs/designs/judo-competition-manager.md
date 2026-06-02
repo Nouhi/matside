@@ -86,7 +86,13 @@ Competition
   ├── id, name, date, location, status (DRAFT/REGISTRATION/WEIGH_IN/ACTIVE/COMPLETED)
   ├── organizerId (User)
   ├── mats: Mat[]
-  └── categories: Category[]
+  ├── categories: Category[]
+  └── coaches: CompetitionCoach[]
+
+CompetitionCoach (organizer-gating join table)
+  ├── id, competitionId, coachUserId, createdAt
+  ├── @@unique(competitionId, coachUserId) — one approval per coach per event
+  └── onDelete Cascade both sides; past registrations (Competitor.registeredById) survive
 
 Category (auto-generated from IJF rules)
   ├── id, name (e.g., "U73 Senior Men")
@@ -121,6 +127,7 @@ ScoreState (JSON)
 ### Authentication & Access
 
 - **Organizer:** email/password account. Creates and manages competitions.
+- **Coach / club manager:** email/password account (COACH role). Registers and tracks club athletes across events. Access is organizer-gated: a coach can only register athletes into (and see) a competition once its organizer has approved them via the Manage-Coaches tab, which creates a `CompetitionCoach` link. Approval is by email and enumeration-safe (the add endpoint returns the same shape whether or not the email maps to a coach account). A coach's register picker shows only competitions that are both approved for them and open (REGISTRATION status); registering without an approval link returns 403.
 - **Competitor:** no account needed for v1. Registers via public link with name + email. Receives a confirmation email with a link to view their draw/schedule.
 - **Table Official:** organizer generates a per-mat PIN code (4-6 digits). Table official enters the PIN at `/mat/{id}/control` to gain scoreboard control. No account needed. PIN displayed to organizer only. If someone enters the wrong PIN, they can only view, not control.
 

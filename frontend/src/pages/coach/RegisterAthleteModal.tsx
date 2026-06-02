@@ -25,9 +25,11 @@ export function RegisterAthleteModal({
   onClose: () => void;
   onRegistered: () => void;
 }) {
+  // Only competitions this coach is approved for AND that are open (PR3 gating),
+  // not every public open competition.
   const { data: open = [], isLoading } = useQuery<OpenCompetition[]>({
-    queryKey: ['open-competitions'],
-    queryFn: () => api.get('/public/competitions/open'),
+    queryKey: ['registrable-competitions'],
+    queryFn: () => api.get('/coach/competitions'),
   });
 
   const [competitionId, setCompetitionId] = useState('');
@@ -89,8 +91,8 @@ export function RegisterAthleteModal({
           <p className="py-8 text-center text-sm text-gray-500">Loading open competitions…</p>
         ) : open.length === 0 ? (
           <EmptyState
-            title="No open competitions"
-            context="There are no competitions accepting registrations right now. Check back when an organizer opens one."
+            title="No competitions to register for"
+            context="An organizer needs to add you to a competition before you can register athletes. Ask them to add your email."
           />
         ) : (
           <form onSubmit={handleSubmit} className="space-y-3">

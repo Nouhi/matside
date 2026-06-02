@@ -35,25 +35,27 @@ export class CoachCompetitorsController {
     @Param('competitionId') competitionId: string,
     @Body() dto: RegisterCompetitorDto,
   ) {
-    return this.competitorsService.register(
-      competitionId,
-      {
-        firstName: dto.firstName,
-        lastName: dto.lastName,
-        email: dto.email,
-        dateOfBirth: new Date(dto.dateOfBirth),
-        gender: dto.gender,
-        weight: dto.weight,
-        club: dto.club,
-        licenseNumber: dto.licenseNumber,
-      },
-      { registeredById: req.user.sub },
-    );
+    return this.competitorsService.registerAsCoach(competitionId, req.user.sub, {
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      email: dto.email,
+      dateOfBirth: new Date(dto.dateOfBirth),
+      gender: dto.gender,
+      weight: dto.weight,
+      club: dto.club,
+      licenseNumber: dto.licenseNumber,
+    });
   }
 
   @Get('athletes')
   myAthletes(@Req() req: AuthRequest) {
     return this.competitorsService.findMyAthletes(req.user.sub);
+  }
+
+  // Competitions the coach is approved for AND that are open — the register picker.
+  @Get('competitions')
+  registrable(@Req() req: AuthRequest) {
+    return this.competitorsService.findRegistrableCompetitions(req.user.sub);
   }
 
   @Patch('competitors/:id/withdraw')
