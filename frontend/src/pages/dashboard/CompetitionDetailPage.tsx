@@ -363,6 +363,14 @@ export function CompetitionDetailPage() {
             {(['competitors', 'weigh-in', 'categories', 'brackets', 'mats', 'standings', 'coaches'] as const).map((tab) => {
               // Weigh-in tab is contextual: only show during WEIGH_IN status.
               if (tab === 'weigh-in' && competition.status !== 'WEIGH_IN') return null;
+              // Coaches are approved during setup/registration; approving after
+              // registration closes is a no-op, so hide the tab past REGISTRATION.
+              if (
+                tab === 'coaches' &&
+                competition.status !== 'DRAFT' &&
+                competition.status !== 'REGISTRATION'
+              )
+                return null;
               return (
                 <button
                   key={tab}

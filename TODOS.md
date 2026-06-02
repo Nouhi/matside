@@ -58,6 +58,20 @@ search scoping is its own small question.
 **Re-evaluate when:** A coach with a stable multi-event roster complains about re-entering
 the same athletes. Plan: `~/.gstack/projects/Nouhi-matside/coach-accounts-plan-20260530.md`.
 
+### COACH-P4 — Per-coach registered-athlete count in the Manage-Coaches list
+
+**What:** Show "· N athletes" next to each coach in the organizer's Coaches tab —
+how many competitors that coach registered into this competition.
+**Why defer:** Surfaced in the coach-gating design review (Pass 7). Priority dropped
+because the revoke flow now has an Undo toast, so the original motivation (don't
+revoke blind) is covered. The count is informational polish, not safety. Needs a
+backend change: `listCoaches` must return a Prisma `_count` of `registeredCompetitors`
+scoped to this competition.
+**Re-evaluate when:** An organizer with many coaches asks "who actually registered
+people?" — i.e. roster-management at scale. **Priority:** P3.
+**Files (when picked up):** `backend/src/competitions/competitions.service.ts`
+(listCoaches), `frontend/src/components/CoachesTab.tsx`.
+
 ### F2.B — Control offline queue (IndexedDB)
 
 **What:** Queue score events in IndexedDB when socket drops, replay on reconnect.

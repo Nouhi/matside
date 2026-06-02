@@ -45,11 +45,14 @@ export function CoachesTab({ competitionId }: { competitionId: string }) {
   });
 
   const remove = useMutation({
-    mutationFn: (coachUserId: string) =>
+    mutationFn: ({ coachUserId }: { coachUserId: string; email: string }) =>
       api.delete(`/competitions/${competitionId}/coaches/${coachUserId}`),
-    onSuccess: () => {
+    onSuccess: (_res, { email }) => {
       queryClient.invalidateQueries({ queryKey: ['coaches', competitionId] });
-      toast('Coach removed', 'success');
+      // Revoke is recoverable: Undo re-approves the same coach by email.
+      toast('Coach removed', 'success', {
+        action: { label: 'Undo', onClick: () => add.mutate(email) },
+      });
     },
     onError: (err: Error) => toast(err.message),
   });
@@ -98,10 +101,10 @@ export function CoachesTab({ competitionId }: { competitionId: string }) {
                 {c.name && <p className="truncate text-sm text-gray-500">{c.email}</p>}
               </div>
               <button
-                onClick={() => remove.mutate(c.coachUserId)}
+                onClick={() => remove.mutate({ coachUserId: c.coachUserId, email: c.email })}
                 disabled={remove.isPending}
                 aria-label={`Remove ${c.email}`}
-                className="inline-flex items-center gap-1 rounded px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:opacity-50"
+                className="inline-flex min-h-[44px] items-center gap-1 rounded px-3 text-xs font-medium text-red-600 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:opacity-50"
               >
                 <X size={14} />
                 Remove

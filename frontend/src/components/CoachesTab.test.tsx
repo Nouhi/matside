@@ -73,4 +73,37 @@ describe('CoachesTab', () => {
       expect(api.delete).toHaveBeenCalledWith('/competitions/comp-1/coaches/c1'),
     );
   });
+
+  // Revoke must be recoverable: the success toast carries an Undo action that
+  // re-approves the same coach by email (re-POSTs to the add endpoint).
+  it('offers an Undo on revoke that re-approves the coach by email', async () => {
+    vi.mocked(api.get).mockResolvedValue([
+      { coachUserId: 'c1', name: 'Jane Coach', email: 'jane@club.com', addedAt: '2026-06-01' },
+    ]);
+    vi.mocked(api.delete).mockResolvedValue({ removed: true });
+    vi.mocked(api.post).mockResolvedValue({ added: true });
+    renderTab();
+    await screen.findByText('Jane Coach');
+    fireEvent.click(screen.getByRole('button', { name: /remove jane@club.com/i }));
+
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith(
+        'Coach removed',
+        'success',
+        expect.objectContaining({
+          action: expect.objectContaining({ label: 'Undo' }),
+        }),
+      ),
+    );
+
+    // Invoke the Undo action and assert it re-approves jane@club.com.
+    const call = vi.mocked(toast).mock.calls.find((c) => c[0] === 'Coach removed');
+    const action = (call?.[2] as { action: { onClick: () => void } }).action;
+    action.onClick();
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/competitions/comp-1/coaches', {
+        email: 'jane@club.com',
+      }),
+    );
+  });
 });
